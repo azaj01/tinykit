@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
-	import { goto } from "$app/navigation";
+	import { goto, replaceState } from "$app/navigation";
 	import {
 		Sparkles,
 		Code,
@@ -148,7 +148,6 @@
 
 	// Content state
 	let content_fields = $state<ContentField[]>([]);
-	let custom_field_types = $state<any[]>([]);
 
 	// Design state
 	let design_fields = $state<DesignField[]>([]);
@@ -239,7 +238,7 @@
 		} else {
 			url.searchParams.set("tab", tab);
 		}
-		history.replaceState({}, "", url.toString());
+		replaceState(url.toString(), {});
 
 		// If left panel is collapsed, expand it when switching tabs
 		if (left_collapsed && left_pane) {
@@ -266,10 +265,9 @@
 			// Clear hash after navigation to avoid stale state on refresh
 			setTimeout(() => {
 				if (window.location.hash) {
-					history.replaceState(
-						null,
-						"",
+					replaceState(
 						window.location.pathname + window.location.search,
+						{}
 					);
 				}
 			}, 100);
@@ -475,14 +473,6 @@
 
 	function toggle_vibe_lounge() {
 		vibe_zone_enabled = !vibe_zone_enabled;
-	}
-
-	async function load_custom_field_types() {
-		try {
-			custom_field_types = await api.load_custom_field_types();
-		} catch (err) {
-			console.error("Failed to load custom field types:", err);
-		}
 	}
 
 	async function load_data_files() {
@@ -713,7 +703,6 @@
 		{:else if current_tab === "content"}
 			<ContentPanel
 				bind:content_fields
-				{custom_field_types}
 				{target_field}
 				on_refresh_preview={refresh_preview}
 				on_target_consumed={() => (target_field = null)}
