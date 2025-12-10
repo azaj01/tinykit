@@ -262,16 +262,6 @@ export async function delete_design_field(project_id: string, id: string): Promi
 	await update_project(project_id, { design })
 }
 
-export async function load_custom_field_types(): Promise<any[]> {
-	// This still needs server endpoint for now (reads from filesystem)
-	const res = await fetch("/api/symbols?type=field", {
-		headers: get_auth_headers()
-	})
-	if (!res.ok) throw new Error("Failed to load custom field types")
-	const data = await res.json()
-	return data.symbols || []
-}
-
 // Data Files API - stored in project.data as key-value
 export async function load_data_files(project_id: string): Promise<string[]> {
 	const project = await get_project(project_id)

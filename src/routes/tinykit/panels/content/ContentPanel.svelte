@@ -8,7 +8,6 @@
   import { Switch } from "$lib/components/ui/switch";
   import { Item, ItemGroup } from "$lib/components/ui/item";
   import * as Select from "$lib/components/ui/select";
-  import CustomFieldRenderer from "$lib/components/CustomFieldRenderer.svelte";
   import AddFieldButton from "../../components/AddFieldButton.svelte";
   import type { ContentField } from "../../types";
   import * as api from "../../lib/api.svelte";
@@ -18,7 +17,6 @@
 
   type ContentPanelProps = {
     content_fields: ContentField[];
-    custom_field_types: any[];
     target_field?: string | null;
     on_refresh_preview: () => void;
     on_target_consumed?: () => void;
@@ -26,7 +24,6 @@
 
   let {
     content_fields = $bindable(),
-    custom_field_types,
     target_field = null,
     on_refresh_preview,
     on_target_consumed,
@@ -67,67 +64,29 @@
   let new_field_description = $state("");
 
   // Build field type options for select
-  let field_type_options = $derived.by(() => {
-    const base_options = [
-      { value: "text", label: "Text" },
-      { value: "textarea", label: "Textarea" },
-      { value: "number", label: "Number" },
-      { value: "boolean", label: "Boolean" },
-      { value: "json", label: "JSON" },
-    ];
-    const custom_options = custom_field_types.map((ct) => ({
-      value: `custom:${ct.id}`,
-      label: `${ct.manifest.icon || "🔧"} ${ct.manifest.name}`,
-    }));
-    return { base_options, custom_options };
-  });
+  const field_type_options = [
+    { value: "text", label: "Text" },
+    { value: "textarea", label: "Textarea" },
+    { value: "number", label: "Number" },
+    { value: "boolean", label: "Boolean" },
+    { value: "json", label: "JSON" },
+  ];
 
   async function add_field() {
     if (!new_field_name.trim()) return;
 
-    let new_field: any;
-
-    if (new_field_type.startsWith("custom:")) {
-      const custom_type_id = new_field_type.replace("custom:", "");
-      const custom_field_def = custom_field_types.find(
-        (ct) => ct.id === custom_type_id,
-      );
-
-      if (!custom_field_def) {
-        console.error("Custom field type not found:", custom_type_id);
-        return;
-      }
-
-      let default_value = {};
-      try {
-        default_value = new_field_value ? JSON.parse(new_field_value) : {};
-      } catch {
-        default_value = {};
-      }
-
-      new_field = {
-        id: Date.now().toString(),
-        name: new_field_name,
-        type: "custom",
-        customType: custom_field_def.manifest.name,
-        value: default_value,
-        description: new_field_description,
-        config: custom_field_def.manifest.defaultConfig || {},
-      };
-    } else {
-      new_field = {
-        id: Date.now().toString(),
-        name: new_field_name,
-        type: new_field_type,
-        value:
-          new_field_type === "boolean"
-            ? false
-            : new_field_type === "number"
-              ? parseFloat(new_field_value) || 0
-              : new_field_value,
-        description: new_field_description,
-      };
-    }
+    const new_field = {
+      id: Date.now().toString(),
+      name: new_field_name,
+      type: new_field_type,
+      value:
+        new_field_type === "boolean"
+          ? false
+          : new_field_type === "number"
+            ? parseFloat(new_field_value) || 0
+            : new_field_value,
+      description: new_field_description,
+    };
 
     try {
       await api.add_content_field(project_id, new_field);
@@ -236,14 +195,7 @@
           >
         </div>
 
-        {#if field.type === "custom" && field.customType}
-          <CustomFieldRenderer
-            customType={field.customType}
-            value={field.value}
-            disabled={true}
-            config={field.config || {}}
-          />
-        {:else if field.type === "textarea"}
+        {#if field.type === "textarea"}
           <textarea
             bind:this={field_inputs[field.id]}
             id="field-{field.id}"
@@ -319,18 +271,12 @@
                 <Select.Trigger
                   class="w-full bg-[var(--builder-bg-primary)] border-[var(--builder-border)]"
                 >
-                  {field_type_options.base_options.find(
-                    (o) => o.value === new_field_type,
-                  )?.label ||
-                    field_type_options.custom_options.find(
-                      (o) => o.value === new_field_type,
-                    )?.label ||
-                    "Select type"}
+                  {field_type_options.find((o) => o.value === new_field_type)?.label || "Select type"}
                 </Select.Trigger>
                 <Select.Content
                   class="bg-[var(--builder-bg-primary)] border-[var(--builder-border)]"
                 >
-                  {#each field_type_options.base_options as option (option.value)}
+                  {#each field_type_options as option (option.value)}
                     <Select.Item
                       value={option.value}
                       label={option.label}
@@ -339,18 +285,6 @@
                       {option.label}
                     </Select.Item>
                   {/each}
-                  {#if field_type_options.custom_options.length > 0}
-                    <Select.Separator class="bg-[var(--builder-border)]" />
-                    {#each field_type_options.custom_options as option (option.value)}
-                      <Select.Item
-                        value={option.value}
-                        label={option.label}
-                        class="text-[var(--builder-text-primary)] hover:bg-[var(--builder-bg-secondary)]"
-                      >
-                        {option.label}
-                      </Select.Item>
-                    {/each}
-                  {/if}
                 </Select.Content>
               </Select.Root>
             </div>
