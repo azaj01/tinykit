@@ -740,6 +740,7 @@
   // localStorage key for persisting draft input
   const draft_key = `tinykit:agent-draft:${project_id}`
   let auto_scroll = $state(true);
+  let user_scrolled_up = $state(false); // Sticky flag: user manually scrolled up during streaming
   let show_welcome_vibe = $state(false);
   let welcome_timer: ReturnType<typeof setTimeout> | null = null;
   let file_being_written = $state<string | null>(null);
@@ -826,9 +827,10 @@
   }
 
   function scroll_to_bottom() {
-    if (message_container && auto_scroll) {
+    // Don't scroll if user has manually scrolled up during this streaming session
+    if (message_container && auto_scroll && !user_scrolled_up) {
       setTimeout(() => {
-        if (message_container) {
+        if (message_container && !user_scrolled_up) {
           message_container.scrollTop = message_container.scrollHeight
         }
       }, 100)
@@ -845,6 +847,15 @@
 
     const is_at_bottom = scroll_height - scroll_top - client_height < threshold;
     auto_scroll = is_at_bottom;
+
+    // If user scrolls up during streaming, set sticky flag
+    if (!is_at_bottom && is_processing) {
+      user_scrolled_up = true;
+    }
+    // If user scrolls back to bottom, clear the flag
+    if (is_at_bottom) {
+      user_scrolled_up = false;
+    }
   }
 
   async function send_message() {
@@ -859,6 +870,7 @@
     agent_input = "";
     is_processing = true;
     user_dismissed_vibe = false;
+    user_scrolled_up = false; // Reset scroll flag for new message
     current_usage = null;
     // Reset textarea height
     if (input_element) {
@@ -1235,6 +1247,7 @@
     let cleaned = text;
     let result_index = 0;
     const inline_results: ToolResultItem[] = [];
+    let pending_tool: string | null = null;
 
     // Replace completed tool blocks with markers, track which results are used
     cleaned = cleaned.replace(
@@ -1262,13 +1275,18 @@
             (needsTrailingNewline ? "\n\n" : "")
           );
         }
-        // This tool hasn't completed yet, remove it
+        // Tool block is complete but no result yet - extract tool name for pending state
+        const name_match = match.match(/<name>(\w+)<\/name>/);
+        if (name_match) {
+          pending_tool = name_match[1];
+        }
+        // Remove the block from display (will show loading state via pending_tool)
         return "";
       }
     );
 
-    // Detect which tool is currently in progress (incomplete block)
-    let in_progress_tool: string | null = null;
+    // Detect which tool is currently in progress (incomplete block OR pending result)
+    let in_progress_tool: string | null = pending_tool;
     const has_incomplete_tool = cleaned.includes("<tool>");
     if (has_incomplete_tool) {
       const incomplete_start = cleaned.indexOf("<tool>");
@@ -1278,6 +1296,19 @@
         in_progress_tool = name_match[1];
       }
       cleaned = cleaned.substring(0, incomplete_start).trim();
+    }
+
+    // Buffer partial tag prefixes to avoid showing "<too" etc during streaming
+    // Check if text ends with a potential partial <tool> or </tool> tag
+    const partial_prefixes = [
+      "</tool", "</too", "</to", "</t", "</",  // closing tag
+      "<tool", "<too", "<to", "<t", "<"         // opening tag
+    ];
+    for (const prefix of partial_prefixes) {
+      if (cleaned.endsWith(prefix)) {
+        cleaned = cleaned.slice(0, -prefix.length).trim();
+        break;
+      }
     }
 
     cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
@@ -1367,7 +1398,13 @@
                 message.content.split(/\n\n(?=📝 Writing)/)}
               {@const code_parts = writing_parts[0].split(/\n\n(?=~~~code~~~)/)}
               {@const tool_parts = code_parts[0].split(/\n+(?=~~~tool:)/)}
-              {@const main_text = tool_parts[0]}
+              {@const main_text_raw = tool_parts[0]}
+              {@const main_text = main_text_raw.replace(/~~~tool:\w+(?::[^~]+)?~~~/g, '').replace(/~~~code~~~/g, '').trim()}
+              {@const leading_markers = [...main_text_raw.matchAll(/~~~tool:(\w+)(?::([^~]+))?~~~/g)].map(m => ({ name: m[1], field: m[2] || null }))}
+              {@const all_tool_markers = [...leading_markers, ...tool_parts.slice(1).map(marker => {
+                const match = marker.match(/^~~~tool:(\w+)(?::([^~]+))?~~~/)
+                return match ? { name: match[1], field: match[2] || null, remaining: marker.replace(/^~~~tool:\w+(?::[^~]+)?~~~\n*/, '').trim() } : null
+              }).filter(Boolean)]}
               {@const is_streaming =
                 idx === messages.length - 1 && is_processing}
               {@const should_animate =
@@ -1388,17 +1425,12 @@
                   </span>
                 {/if}
               </div>
-              {#if tool_parts.length > 1}
+              {#if all_tool_markers.length > 0}
                 <div class="mt-2 flex flex-wrap gap-1.5">
-                  {#each tool_parts.slice(1) as tool_marker}
-                    {@const tool_match = tool_marker.match(
-                      /^~~~tool:(\w+)(?::([^~]+))?~~~/
-                    )}
-                    {@const tool_name = tool_match ? tool_match[1] : "unknown"}
-                    {@const field_name = tool_match ? tool_match[2] : null}
-                    {@const remaining_text = tool_marker
-                      .replace(/^~~~tool:\w+(?::[^~]+)?~~~\n*/, "")
-                      .trim()}
+                  {#each all_tool_markers as tool_marker}
+                    {@const tool_name = tool_marker.name}
+                    {@const field_name = tool_marker.field}
+                    {@const remaining_text = tool_marker.remaining || ""}
 
                     {#if tool_name === "update_spec"}
                       <!-- Spec updates are silent - no UI shown -->
