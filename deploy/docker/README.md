@@ -123,10 +123,6 @@ Required:
 - `LLM_API_KEY` - Your API key
 - `LLM_MODEL` - Model to use
 
-Recommended for production:
-- `ADMIN_PASSWORD` - Protect /tinykit builder
-- `APP_PASSWORD` - Protect generated app APIs
-
 ## Volumes
 
 Docker volumes persist data between container restarts:

@@ -51,10 +51,6 @@
    LLM_API_KEY=sk-your-api-key-here
    LLM_MODEL=gpt-4
 
-   # Optional: Security (RECOMMENDED)
-   ADMIN_PASSWORD=your-secure-admin-password
-   APP_PASSWORD=your-app-password
-
    # Server config (Railway sets PORT automatically)
    HOST=0.0.0.0
    WORKSPACE_DIR=/app/workspace
@@ -83,7 +79,6 @@ railway init
 railway variables set LLM_PROVIDER=openai
 railway variables set LLM_API_KEY=sk-...
 railway variables set LLM_MODEL=gpt-4
-railway variables set ADMIN_PASSWORD=your-password
 
 # Deploy
 railway up
@@ -96,7 +91,6 @@ Your app will be available at: `https://your-project.up.railway.app`
 
 ### 2. Initial Access
 - Navigate to `https://your-project.up.railway.app/tinykit`
-- If you set `ADMIN_PASSWORD`, you'll be prompted to log in
 - Start building your first app!
 
 ### 3. Custom Domain (Optional)
@@ -115,12 +109,6 @@ Your app will be available at: `https://your-project.up.railway.app`
 | `LLM_PROVIDER` | AI provider | `openai`, `anthropic`, `zai` |
 | `LLM_API_KEY` | API key for LLM provider | `sk-...` |
 | `LLM_MODEL` | Model to use | `gpt-4`, `claude-sonnet-4.5` |
-
-### Recommended
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `ADMIN_PASSWORD` | Protects `/tinykit` builder | Any secure password |
-| `APP_PASSWORD` | Protects generated app APIs | Any secure password |
 
 ### Optional
 | Variable | Description | Default |
@@ -244,8 +232,6 @@ For production use:
 
 Before going live:
 
-- [ ] Set strong `ADMIN_PASSWORD` (protects builder)
-- [ ] Set `APP_PASSWORD` if hosting public apps
 - [ ] Rotate LLM API keys regularly
 - [ ] Enable Railway's "Protect Deployments" feature
 - [ ] Set up custom domain with HTTPS (auto via Railway)
