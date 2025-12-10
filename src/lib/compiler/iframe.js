@@ -121,9 +121,12 @@ function create_collection(name) {
       const record = await res.json()
       // Set cooldown to ignore echo from our own mutation
       collection._set_cooldown(500)
-      // Optimistically update local cache
+      // Optimistically update local cache (check for duplicates - SSE may have arrived first)
       if (cache) {
-        cache = [...cache, record]
+        const exists = cache.some(r => r.id === record.id)
+        if (!exists) {
+          cache = [...cache, record]
+        }
         collection._notify(cache, true)
       }
       return record
