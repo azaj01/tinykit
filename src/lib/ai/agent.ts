@@ -109,6 +109,11 @@ Extract ALL text: titles, buttons, placeholders, empty states, messages.
 - Generic field names → "Card Background" not "Primary Color"
 - Missing fallback → \`var(--x, #default)\` not \`var(--x)\`
 
+## UX Polish
+- Use \`transition:fade={{ duration: 100 }}\` for dialogs and modals
+- Use \`transition:fade={{ duration: 100 }}\` for list items that add/remove
+- Import: \`import { fade } from 'svelte/transition'\`
+
 ${getToolsPrompt()}`;
 
 export interface CodeBlock {
