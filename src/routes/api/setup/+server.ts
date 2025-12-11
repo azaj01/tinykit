@@ -80,17 +80,31 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: "Superuser created but authentication failed: " + err.message }, { status: 500 })
 		}
 
-		// 3. Update users collection to disallow public registration
-		console.log("[Setup] Updating users collection rules...")
+		// 3. Ensure users collection exists and is properly configured
+		console.log("[Setup] Checking users collection...")
 		try {
 			const usersCollection = await pb.collections.getOne("users")
-			await pb.collections.update(usersCollection.id, {
-				createRule: null // null = no one can create (disabled)
-			})
-			console.log("[Setup] Users collection updated")
+			console.log("[Setup] Users collection exists:", usersCollection.name)
 		} catch (err: any) {
-			console.error("[Setup] Failed to update users collection rules:", err.message)
-			// Non-fatal, continue
+			console.log("[Setup] Users collection not found, creating it...")
+			try {
+				await pb.collections.create({
+					name: "users",
+					type: "auth",
+					schema: [
+						{ name: "name", type: "text", required: false }
+					],
+					createRule: "", // empty = anyone can create (for initial setup)
+					listRule: "@request.auth.id != ''",
+					viewRule: "@request.auth.id != ''",
+					updateRule: "@request.auth.id = id",
+					deleteRule: null
+				})
+				console.log("[Setup] Users collection created")
+			} catch (createErr: any) {
+				console.error("[Setup] Failed to create users collection:", createErr)
+				return json({ error: "Failed to create users collection: " + (createErr.message || JSON.stringify(createErr)) }, { status: 500 })
+			}
 		}
 
 		// 4. Create the first user account with same credentials
@@ -104,11 +118,26 @@ export const POST: RequestHandler = async ({ request }) => {
 			})
 			console.log("[Setup] User account created")
 		} catch (err: any) {
-			console.error("[Setup] Failed to create user account:", err.message)
-			return json({ error: "Superuser created but user account creation failed: " + err.message }, { status: 500 })
+			console.error("[Setup] Failed to create user account:", err)
+			const errorDetail = err.response?.data || err.data || err.message || "Unknown error"
+			return json({ error: "Superuser created but user account creation failed: " + JSON.stringify(errorDetail) }, { status: 500 })
 		}
 
-		// 5. Save LLM settings if provided
+		// 5. Update users collection to disallow public registration (after user is created)
+		console.log("[Setup] Updating users collection rules...")
+		try {
+			const usersCollection = await pb.collections.getOne("users")
+			await pb.collections.update(usersCollection.id, {
+				createRule: null // null = no one can create (disabled)
+			})
+			console.log("[Setup] Users collection updated")
+		} catch (err: any) {
+			console.error("[Setup] Failed to update users collection rules:", err.message)
+			// Non-fatal, continue
+		}
+
+		// 6. Save LLM settings if provided
+		// Note: _tk_settings and _tk_projects collections are created by PocketBase migrations
 		if (llm && llm.api_key) {
 			console.log("[Setup] Saving LLM settings...")
 			try {
@@ -127,7 +156,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		}
 
-		// 6. Create setup marker file with credentials for server-side auth
+		// 7. Create setup marker file with credentials for server-side auth
 		try {
 			const fs = await import("fs/promises")
 			const setup_data = JSON.stringify({

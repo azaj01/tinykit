@@ -4,7 +4,8 @@
   import { Button } from "$lib/components/ui/button";
   import Spinner from "$lib/components/Spinner.svelte";
   import TokenCost from "../../components/TokenCost.svelte";
-  import { FileText, Palette, Database, Code, ArrowUp } from "lucide-svelte";
+  import { FileText, Palette, Database, Code, ArrowUp, Settings, Sparkles } from "lucide-svelte";
+  import { pb } from "$lib/pocketbase.svelte";
   import type { Message, PreviewError, TokenUsage, PendingPrompt } from "../../types";
   import { send_prompt, clear_conversation, load_spec } from "../../lib/api.svelte";
   import { marked } from "marked";
@@ -736,6 +737,7 @@
   let agent_input = $state("");
   let message_container: HTMLDivElement;
   let input_element: HTMLTextAreaElement;
+  let llm_configured = $state<boolean | null>(null); // null = loading, true/false = checked
 
   // localStorage key for persisting draft input
   const draft_key = `tinykit:agent-draft:${project_id}`
@@ -764,7 +766,7 @@
     }
   }
 
-  onMount(() => {
+  onMount(async () => {
     input_element?.focus()
     // Scroll to bottom when mounting (switching to this tab)
     scroll_to_bottom()
@@ -774,6 +776,16 @@
       agent_input = saved_draft
       // Trigger auto-resize after restoring
       setTimeout(() => auto_resize_input(), 0)
+    }
+    // Check if LLM is configured
+    try {
+      const res = await fetch("/api/settings/llm-status", {
+        headers: { "Authorization": `Bearer ${pb.authStore.token}` }
+      })
+      const data = await res.json()
+      llm_configured = data.configured
+    } catch {
+      llm_configured = false
     }
   })
 
@@ -1371,10 +1383,33 @@
       </div>
     {:else if messages.length === 0}
       <div class="text-[var(--builder-text-secondary)] text-center py-12">
-        <p class="text-lg font-medium text-[var(--builder-text-primary)]">
-          Welcome to tinykit
-        </p>
-        <p class="mt-2">Describe what you want to build...</p>
+        {#if llm_configured === false}
+          <div class="flex flex-col items-center gap-4">
+            <div class="w-12 h-12 rounded-full bg-[var(--builder-bg-tertiary)] flex items-center justify-center">
+              <Sparkles class="w-6 h-6 text-[var(--builder-text-muted)]" />
+            </div>
+            <div>
+              <p class="text-lg font-medium text-[var(--builder-text-primary)]">
+                AI not configured
+              </p>
+              <p class="mt-2 max-w-xs mx-auto">
+                Add an API key to use the AI assistant, or use templates and manual editing.
+              </p>
+            </div>
+            <a
+              href="/tinykit/settings"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-[var(--builder-accent)] text-white rounded-lg hover:bg-[var(--builder-accent-hover)] transition-colors text-sm font-medium"
+            >
+              <Settings class="w-4 h-4" />
+              Configure AI
+            </a>
+          </div>
+        {:else}
+          <p class="text-lg font-medium text-[var(--builder-text-primary)]">
+            Welcome to tinykit
+          </p>
+          <p class="mt-2">Describe what you want to build...</p>
+        {/if}
       </div>
     {:else}
       {#each messages as message, idx}
@@ -1594,15 +1629,15 @@
           bind:value={agent_input}
           onkeydown={handle_keydown}
           oninput={auto_resize_input}
-          placeholder="Make a todo list"
+          placeholder={llm_configured === false ? "AI not configured" : "Make a todo list"}
           class="mt-[3px] flex-1 bg-transparent text-[var(--builder-text-primary)] placeholder:text-[var(--builder-text-secondary)] placeholder:opacity-50 focus:outline-none font-sans resize-none overflow-hidden min-h-[1.5rem] max-h-[12rem]"
-          disabled={is_processing}
+          disabled={is_processing || llm_configured === false}
           rows="1"
         ></textarea>
         <button
           onclick={send_message}
-          disabled={is_processing || !agent_input.trim()}
-          class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors {agent_input.trim() && !is_processing
+          disabled={is_processing || !agent_input.trim() || llm_configured === false}
+          class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors {agent_input.trim() && !is_processing && llm_configured !== false
             ? 'bg-[var(--builder-accent)] text-white'
             : 'bg-[var(--builder-bg-tertiary)] text-[var(--builder-text-secondary)]'}"
         >

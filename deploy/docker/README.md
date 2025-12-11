@@ -119,7 +119,7 @@ your-domain.com {
 See `.env.example` for all available options.
 
 Required:
-- `LLM_PROVIDER` - AI provider (openai, anthropic, zai)
+- `LLM_PROVIDER` - AI provider (openai, anthropic, gemini, deepseek)
 - `LLM_API_KEY` - Your API key
 - `LLM_MODEL` - Model to use
 

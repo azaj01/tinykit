@@ -1,14 +1,26 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
-	import { Loader2, Eye, EyeOff } from "lucide-svelte";
+	import { Loader2, Eye, EyeOff, CircleCheck, CircleX, TestTube } from "lucide-svelte";
 	import { auth } from "$lib/pocketbase.svelte";
 
 	const PROVIDERS = [
-		{ id: "gemini", name: "Google Gemini", models: ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
-		{ id: "anthropic", name: "Anthropic", models: ["claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-3-5-sonnet-20241022"] },
-		{ id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"] },
-		{ id: "deepseek", name: "DeepSeek", models: ["deepseek-chat", "deepseek-reasoner"] }
+		{ id: "gemini", name: "Google Gemini", models: [
+			{ id: "gemini-2.5-pro", label: "gemini-2.5-pro — best" },
+			{ id: "gemini-2.5-flash", label: "gemini-2.5-flash — fast" }
+		]},
+		{ id: "anthropic", name: "Anthropic", models: [
+			{ id: "claude-sonnet-4-5-20250929", label: "claude-sonnet-4.5 — best" },
+			{ id: "claude-haiku-4-5-20251001", label: "claude-haiku-4.5 — fast" }
+		]},
+		{ id: "openai", name: "OpenAI", models: [
+			{ id: "gpt-5.1", label: "gpt-5.1 — best" },
+			{ id: "gpt-4o-mini", label: "gpt-4o-mini — fast" }
+		]},
+		{ id: "deepseek", name: "DeepSeek", models: [
+			{ id: "deepseek-chat", label: "deepseek-chat — best" },
+			{ id: "deepseek-reasoner", label: "deepseek-reasoner — reasoning" }
+		]}
 	]
 
 	const API_KEY_URLS: Record<string, string> = {
@@ -23,11 +35,13 @@
 	let confirm_password = $state("");
 	let llm_provider = $state("gemini");
 	let llm_api_key = $state("");
-	let llm_model = $state("gemini-3-pro-preview");
+	let llm_model = $state("gemini-2.5-pro");
 	let show_api_key = $state(false);
 	let is_submitting = $state(false);
 	let is_checking = $state(true);
 	let error = $state<string | null>(null);
+	let validation_status = $state<'idle' | 'testing' | 'valid' | 'invalid'>('idle');
+	let validation_error = $state<string | null>(null);
 
 	let available_models = $derived(
 		PROVIDERS.find(p => p.id === llm_provider)?.models || []
@@ -38,8 +52,46 @@
 		llm_provider = target.value;
 		const provider = PROVIDERS.find(p => p.id === llm_provider);
 		if (provider && provider.models.length > 0) {
-			llm_model = provider.models[0];
+			llm_model = provider.models[0].id;
 		}
+		// Reset validation when provider changes
+		validation_status = 'idle';
+		validation_error = null;
+	}
+
+	async function test_api_key() {
+		if (!llm_api_key) return;
+
+		validation_status = 'testing';
+		validation_error = null;
+
+		try {
+			const res = await fetch("/api/settings/validate-llm", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					provider: llm_provider,
+					api_key: llm_api_key
+				})
+			});
+
+			const data = await res.json();
+
+			if (data.valid) {
+				validation_status = 'valid';
+			} else {
+				validation_status = 'invalid';
+				validation_error = data.error || 'Invalid API key';
+			}
+		} catch (err: any) {
+			validation_status = 'invalid';
+			validation_error = err.message || 'Validation failed';
+		}
+	}
+
+	function handle_api_key_change() {
+		validation_status = 'idle';
+		validation_error = null;
 	}
 
 	onMount(async () => {
@@ -250,27 +302,52 @@
 									</a>
 								{/if}
 							</label>
-							<div class="relative">
-								<input
-									id="llm_api_key"
-									type={show_api_key ? "text" : "password"}
-									bind:value={llm_api_key}
-									disabled={is_submitting}
-									class="w-full px-3 py-2 pr-10 bg-[var(--builder-bg-secondary)] border border-[var(--builder-border)] rounded-lg text-[var(--builder-text-primary)] placeholder-[var(--builder-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--builder-accent)] focus:border-transparent disabled:opacity-50 font-mono text-sm"
-									placeholder="Enter your API key"
-								/>
+							<div class="flex gap-2">
+								<div class="relative flex-1">
+									<input
+										id="llm_api_key"
+										type={show_api_key ? "text" : "password"}
+										bind:value={llm_api_key}
+										oninput={handle_api_key_change}
+										disabled={is_submitting}
+										class="w-full px-3 py-2 pr-10 bg-[var(--builder-bg-secondary)] border border-[var(--builder-border)] rounded-lg text-[var(--builder-text-primary)] placeholder-[var(--builder-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--builder-accent)] focus:border-transparent disabled:opacity-50 font-mono text-sm"
+										placeholder="Enter your API key"
+									/>
+									<button
+										type="button"
+										onclick={() => show_api_key = !show_api_key}
+										class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--builder-text-muted)] hover:text-[var(--builder-text-primary)]"
+									>
+										{#if show_api_key}
+											<EyeOff class="w-4 h-4" />
+										{:else}
+											<Eye class="w-4 h-4" />
+										{/if}
+									</button>
+								</div>
 								<button
 									type="button"
-									onclick={() => show_api_key = !show_api_key}
-									class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[var(--builder-text-muted)] hover:text-[var(--builder-text-primary)]"
+									onclick={test_api_key}
+									disabled={!llm_api_key || validation_status === 'testing' || is_submitting}
+									class="px-3 py-2 bg-[var(--builder-bg-secondary)] border border-[var(--builder-border)] rounded-lg text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] hover:border-[var(--builder-accent)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 text-sm"
 								>
-									{#if show_api_key}
-										<EyeOff class="w-4 h-4" />
+									{#if validation_status === 'testing'}
+										<Loader2 class="w-4 h-4 animate-spin" />
+									{:else if validation_status === 'valid'}
+										<CircleCheck class="w-4 h-4 text-green-500" />
+									{:else if validation_status === 'invalid'}
+										<CircleX class="w-4 h-4 text-red-500" />
 									{:else}
-										<Eye class="w-4 h-4" />
+										<TestTube class="w-4 h-4" />
 									{/if}
+									Test
 								</button>
 							</div>
+							{#if validation_status === 'valid'}
+								<p class="text-xs text-green-500 mt-1">API key is valid</p>
+							{:else if validation_status === 'invalid' && validation_error}
+								<p class="text-xs text-red-400 mt-1">{validation_error}</p>
+							{/if}
 						</div>
 
 						<div>
@@ -286,8 +363,8 @@
 								disabled={is_submitting}
 								class="w-full px-3 py-2 bg-[var(--builder-bg-secondary)] border border-[var(--builder-border)] rounded-lg text-[var(--builder-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--builder-accent)] focus:border-transparent disabled:opacity-50"
 							>
-								{#each available_models as model (model)}
-									<option value={model}>{model}</option>
+								{#each available_models as model (model.id)}
+									<option value={model.id}>{model.label}</option>
 								{/each}
 							</select>
 						</div>

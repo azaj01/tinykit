@@ -36,6 +36,7 @@ static
 
 # Local directories
 /palacms/
+/local-notes/
 
 # PocketBase binary and data (downloaded/generated at runtime)
 /pocketbase/pocketbase

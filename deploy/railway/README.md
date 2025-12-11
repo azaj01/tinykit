@@ -4,7 +4,7 @@
 
 - Railway account (free tier available)
 - GitHub repository (or use Railway CLI)
-- LLM API key (OpenAI, Anthropic, or z.ai)
+- LLM API key (OpenAI, Anthropic, Gemini, or DeepSeek)
 
 ## Quick Deploy
 
@@ -106,7 +106,7 @@ Your app will be available at: `https://your-project.up.railway.app`
 ### Required
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `LLM_PROVIDER` | AI provider | `openai`, `anthropic`, `zai` |
+| `LLM_PROVIDER` | AI provider | `openai`, `anthropic`, `gemini`, `deepseek` |
 | `LLM_API_KEY` | API key for LLM provider | `sk-...` |
 | `LLM_MODEL` | Model to use | `gpt-4`, `claude-sonnet-4.5` |
 

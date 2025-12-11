@@ -6,7 +6,7 @@ export class OpenAIProvider implements LLMProvider {
 	model: string;
 	private web_search_enabled: boolean;
 
-	constructor(apiKey: string, model: string = 'gpt-4', webSearch: boolean = false) {
+	constructor(apiKey: string, model: string = 'gpt-4o', webSearch: boolean = false) {
 		this.client = new OpenAI({ apiKey });
 		this.model = model;
 		this.web_search_enabled = webSearch;

@@ -1,7 +1,20 @@
 // @ts-nocheck
 import * as _ from 'lodash-es'
 import PromiseWorker from 'promise-worker'
-import { render } from 'svelte/server'
+import { VERSION as SVELTE_VERSION } from 'svelte/compiler'
+
+// CDN URL must match rollup.worker.js to use same Svelte runtime instance
+const SVELTE_SERVER_CDN = `https://esm.sh/svelte@${SVELTE_VERSION}/server`
+
+// Cache the CDN render function
+let cdn_render = null
+async function getRender() {
+	if (!cdn_render) {
+		const mod = await import(/* @vite-ignore */ SVELTE_SERVER_CDN)
+		cdn_render = mod.render
+	}
+	return cdn_render
+}
 
 let postcss_worker
 let rollup_worker
@@ -140,6 +153,7 @@ export async function html({ component, head, buildStatic = true, css = 'externa
 		}
 
 		try {
+			const render = await getRender()
 			const rendered = render(App, { props: component_data })
 			payload = {
 				head: rendered.head,

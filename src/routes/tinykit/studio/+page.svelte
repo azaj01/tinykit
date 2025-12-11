@@ -331,9 +331,6 @@
 
 			// Auto-load first file
 			load_initial_file();
-
-			// Build the app on startup
-			build_app();
 		})();
 
 		return () => {

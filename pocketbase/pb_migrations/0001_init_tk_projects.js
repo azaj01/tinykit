@@ -1,8 +1,9 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-// Consolidated migration: creates _tk_projects collection with full schema
+// Creates tinykit collections: _tk_projects and _tk_settings
 migrate((app) => {
-	const collection = new Collection({
+	// _tk_projects - stores user projects
+	const projects = new Collection({
 		name: "_tk_projects",
 		type: "base",
 		fields: [
@@ -36,9 +37,26 @@ migrate((app) => {
 		updateRule: "@request.auth.id != ''",
 		deleteRule: "@request.auth.id != ''"
 	})
+	app.save(projects)
 
-	return app.save(collection)
+	// _tk_settings - stores app configuration (LLM keys, etc)
+	// Uses record ID as the key (e.g., id="llm" for LLM settings)
+	const settings = new Collection({
+		name: "_tk_settings",
+		type: "base",
+		fields: [
+			{ name: "value", type: "json", required: false }
+		],
+		listRule: "@request.auth.id != ''",
+		viewRule: "@request.auth.id != ''",
+		createRule: "@request.auth.id != ''",
+		updateRule: "@request.auth.id != ''",
+		deleteRule: "@request.auth.id != ''"
+	})
+	return app.save(settings)
 }, (app) => {
-	const collection = app.findCollectionByNameOrId("_tk_projects")
-	return app.delete(collection)
+	const projects = app.findCollectionByNameOrId("_tk_projects")
+	app.delete(projects)
+	const settings = app.findCollectionByNameOrId("_tk_settings")
+	return app.delete(settings)
 })

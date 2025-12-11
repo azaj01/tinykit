@@ -48,7 +48,7 @@ export const TOKEN_PRICING: Record<string, { input: number; output: number }> = 
 	// Anthropic models - https://claude.com/pricing
 	'claude-opus-4-5-20251101': { input: 5.00, output: 25.00 },
 	'claude-sonnet-4-5-20250929': { input: 3.00, output: 15.00 },
-	'claude-haiku-4-5-20250929': { input: 1.00, output: 5.00 },
+	'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
 	'claude-opus-4-20250514': { input: 15.00, output: 75.00 },
 	'claude-sonnet-4-20250514': { input: 3.00, output: 15.00 },
 	'claude-3-7-sonnet-20250219': { input: 3.00, output: 15.00 },
@@ -69,8 +69,10 @@ export const TOKEN_PRICING: Record<string, { input: number; output: number }> = 
 	'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
 	'o1': { input: 15.00, output: 60.00 },
 	'o1-pro': { input: 150.00, output: 600.00 },
-	'o3': { input: 2.00, output: 8.00 },
-	'o3-mini': { input: 1.10, output: 4.40 },
+	'gpt-5.1': { input: 1.25, output: 10.00 },
+	'gpt-5-mini': { input: 0.25, output: 2.00 },
+	'o3': { input: 10.00, output: 40.00 },
+	'o4-mini': { input: 1.10, output: 4.40 },
 	// Gemini models - https://ai.google.dev/pricing
 	'gemini-3-pro-preview': { input: 1.25, output: 10.00 },
 	'gemini-2.5-pro': { input: 1.25, output: 10.00 },

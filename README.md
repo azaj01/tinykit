@@ -33,7 +33,7 @@ Done.
 | **Content Fields** | Edit text without touching code. |
 | **Design System** | Update colors, fonts, shadows from a visual editor. |
 | **Time Travel** | Snapshots on every change. Undo anything. |
-| **Bring Your Own LLM** | OpenAI, Anthropic, Gemini, or [z.ai](https://z.ai). |
+| **Bring Your Own LLM** | OpenAI, Anthropic, Gemini, or DeepSeek. |
 
 **Run hundreds of apps on one server.** Point any domain → get a working app.
 
