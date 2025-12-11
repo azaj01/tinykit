@@ -218,7 +218,10 @@ async function rollup_worker({ component, head = { code: '', data: {} }, hydrate
 							}
 
 							// 8) Svelte runtime pinned
-							if (importee === 'svelte') return SVELTE_CDN
+							// For SSR: use a shim that makes lifecycle hooks no-ops
+							if (importee === 'svelte') {
+								return isSSR ? 'virtual:svelte-ssr' : SVELTE_CDN
+							}
 							if (importee.startsWith('svelte/')) return `${CDN_URL}/svelte@${SVELTE_VERSION}/${importee.slice('svelte/'.length)}`
 
 							// 9) Iconify shim
@@ -234,6 +237,21 @@ async function rollup_worker({ component, head = { code: '', data: {} }, hydrate
 						async load(id) {
 							if (id === 'virtual:esm-env') {
 								return `export const DEV = false; export const PROD = true; export const BROWSER = ${isSSR ? 'false' : 'true'};`
+							}
+
+							// SSR shim for svelte - re-exports everything but makes lifecycle hooks no-ops
+							if (id === 'virtual:svelte-ssr') {
+								return `
+// Re-export everything from real svelte
+export * from '${SVELTE_CDN}';
+
+// Override lifecycle hooks with no-ops for SSR
+export function onMount(fn) { /* no-op in SSR */ }
+export function onDestroy(fn) { /* no-op in SSR */ }
+export function beforeUpdate(fn) { /* no-op in SSR */ }
+export function afterUpdate(fn) { /* no-op in SSR */ }
+export function tick() { return Promise.resolve(); }
+`
 							}
 
 							// Iconify shim - a Svelte 5 component that wraps iconify-icon web component
