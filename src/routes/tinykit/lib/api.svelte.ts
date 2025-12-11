@@ -574,8 +574,8 @@ function generate_production_html({ body, head = '', hydration_js, config }: Pro
 	<title>${config.project_name || 'tinykit App'}</title>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-normalize@2.0.0/modern-normalize.min.css">
 	${font_links}
-	${head}
 	<style>${design_css}</style>
+	${head}
 	${hydration_js ? `<script type="importmap">
 	{
 		"imports": {
