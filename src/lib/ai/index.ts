@@ -10,9 +10,9 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
 	switch (config.provider) {
 		case 'openai':
 			if (!config.apiKey) {
-				throw new Error('OpenAI API key is required');
+				throw new Error('OpenAI API key is required')
 			}
-			return new OpenAIProvider(config.apiKey, config.model, webSearch);
+			return new OpenAIProvider(config.apiKey, config.model)
 
 		case 'anthropic':
 			if (!config.apiKey) {
