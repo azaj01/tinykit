@@ -131,6 +131,7 @@
 	let vibe_zone_enabled = $state(true);
 	let vibe_zone_loaded = $state(false);
 	let vibe_zone_visible = $state(false);
+	let vibe_zone_fullscreen = $state(false);
 	let vibe_user_prompt = $state("");
 	let agent_panel: AgentPanel | undefined = $state();
 
@@ -267,7 +268,7 @@
 				if (window.location.hash) {
 					replaceState(
 						window.location.pathname + window.location.search,
-						{}
+						{},
 					);
 				}
 			}, 100);
@@ -313,8 +314,7 @@
 				}
 
 				// Load vibe zone setting from project settings (defaults to true)
-				vibe_zone_enabled =
-					project.settings?.vibe_zone_enabled ?? true;
+				vibe_zone_enabled = project.settings?.vibe_zone_enabled ?? true;
 				vibe_zone_loaded = true;
 			} catch (err) {
 				console.error("Failed to load project:", err);
@@ -328,6 +328,12 @@
 			// Apply saved theme immediately on load
 			const theme = get_saved_theme();
 			apply_builder_theme(theme);
+
+			// Load vibe zone fullscreen preference
+			const savedFullscreen = localStorage.getItem("vibezone-fullscreen");
+			if (savedFullscreen === "true") {
+				vibe_zone_fullscreen = true;
+			}
 
 			// Auto-load first file
 			load_initial_file();
@@ -363,6 +369,16 @@
 			api.update_project_settings(project_id, {
 				vibe_zone_enabled,
 			}).catch(console.error);
+		}
+	});
+
+	// Save vibe zone fullscreen preference to localStorage
+	$effect(() => {
+		if (typeof window !== "undefined") {
+			localStorage.setItem(
+				"vibezone-fullscreen",
+				vibe_zone_fullscreen.toString(),
+			);
 		}
 	});
 
@@ -439,14 +455,16 @@
 		(processing) => {
 			if (was_processing && !processing) {
 				// Agent just finished - reload code from database to ensure editor is in sync
-				api.read_code(project_id).then((code) => {
-					if (code && code.length > 0) {
-						file_content = code;
-					}
-				}).catch(console.error);
+				api.read_code(project_id)
+					.then((code) => {
+						if (code && code.length > 0) {
+							file_content = code;
+						}
+					})
+					.catch(console.error);
 			}
 			was_processing = processing;
-		}
+		},
 	);
 
 	// Functions
@@ -757,12 +775,23 @@
 
 	<!-- Snippet: Preview Pane (reused across layouts) -->
 	{#snippet preview_pane()}
-		<Preview
-			code={file_content}
-			language={editor_language}
-			{project_id}
-			agent_working={is_processing}
-		/>
+		<div class="relative h-full w-full">
+			<Preview
+				code={file_content}
+				language={editor_language}
+				{project_id}
+				agent_working={is_processing}
+			/>
+			{#if vibe_zone_visible && !vibe_zone_fullscreen}
+				<VibeZone
+					userPrompt={vibe_user_prompt}
+					enabled={vibe_zone_enabled}
+					bind:isFullscreen={vibe_zone_fullscreen}
+					onDismiss={() => agent_panel?.dismiss_vibe()}
+					onToggleEnabled={toggle_vibe_lounge}
+				/>
+			{/if}
+		</div>
 	{/snippet}
 
 	<!-- Desktop: Configurable layout based on preview_position -->
@@ -795,7 +824,8 @@
 				</Pane>
 
 				<PaneResizer
-					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed || right_collapsed
+					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed ||
+					right_collapsed
 						? 'h-6 cursor-pointer'
 						: 'h-1 hover:bg-[var(--builder-accent)] cursor-row-resize'}"
 				>
@@ -878,7 +908,8 @@
 				</Pane>
 
 				<PaneResizer
-					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed || right_collapsed
+					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed ||
+					right_collapsed
 						? 'w-6 cursor-pointer'
 						: 'w-1 hover:bg-[var(--builder-accent)] cursor-col-resize'}"
 				>
@@ -965,7 +996,8 @@
 				</Pane>
 
 				<PaneResizer
-					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed || right_collapsed
+					class="relative z-20 bg-[var(--builder-border)] transition-all {left_collapsed ||
+					right_collapsed
 						? 'w-6 cursor-pointer'
 						: 'w-1 hover:bg-[var(--builder-accent)] cursor-col-resize'}"
 				>
@@ -1070,7 +1102,8 @@
 			</Pane>
 
 			<PaneResizer
-				class="relative z-20 bg-[var(--builder-border)] transition-all touch-none {mobile_top_collapsed || mobile_bottom_collapsed
+				class="relative z-20 bg-[var(--builder-border)] transition-all touch-none {mobile_top_collapsed ||
+				mobile_bottom_collapsed
 					? 'h-6 cursor-pointer'
 					: 'h-2 hover:bg-[var(--builder-accent)] cursor-row-resize'}"
 			>
@@ -1139,11 +1172,12 @@
 	{/if}
 </div>
 
-<!-- Vibe Zone (rendered at root level for proper fullscreen) -->
-<VibeZone
-	visible={vibe_zone_visible}
-	userPrompt={vibe_user_prompt}
-	enabled={vibe_zone_enabled}
-	onDismiss={() => agent_panel?.dismiss_vibe()}
-	onToggleEnabled={toggle_vibe_lounge}
-/>
+{#if vibe_zone_visible && vibe_zone_fullscreen}
+	<VibeZone
+		userPrompt={vibe_user_prompt}
+		enabled={vibe_zone_enabled}
+		bind:isFullscreen={vibe_zone_fullscreen}
+		onDismiss={() => agent_panel?.dismiss_vibe()}
+		onToggleEnabled={toggle_vibe_lounge}
+	/>
+{/if}
