@@ -165,12 +165,19 @@ Extract ALL text: titles, buttons, placeholders, empty states, messages.
 
 function get_model(config: AgentConfig) {
 	switch (config.provider) {
-		case 'openai':
-		case 'deepseek': {
+		case 'openai': {
 			const openai = createOpenAI({
 				apiKey: config.apiKey,
-				baseURL: config.baseUrl || (config.provider === 'deepseek' ? 'https://api.deepseek.com/v1' : undefined),
 				compatibility: 'strict'
+			})
+			return openai(config.model)
+		}
+		case 'deepseek': {
+			// DeepSeek uses OpenAI-compatible chat completions API
+			// No compatibility mode - let SDK use default behavior
+			const openai = createOpenAI({
+				apiKey: config.apiKey,
+				baseURL: 'https://api.deepseek.com'
 			})
 			return openai(config.model)
 		}
@@ -434,10 +441,16 @@ export async function run_agent(
 		return { role: m.role as 'user' | 'assistant', content: m.content }
 	})
 
+	// DeepSeek doesn't support 'developer' role, so we need to add system message manually
+	const is_deepseek = config.provider === 'deepseek'
+	const final_messages: CoreMessage[] = is_deepseek
+		? [{ role: 'system' as const, content: system }, ...core_messages]
+		: core_messages
+
 	const result = streamText({
 		model,
-		system,
-		messages: core_messages,
+		system: is_deepseek ? undefined : system, // DeepSeek: system in messages array, others: system parameter
+		messages: final_messages,
 		tools,
 		maxSteps: 100, // High limit to allow model to finish completely (default is 1 when tools present)
 		toolCallStreaming: true,

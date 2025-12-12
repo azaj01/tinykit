@@ -4,10 +4,27 @@
   import { Button } from "$lib/components/ui/button";
   import Spinner from "$lib/components/Spinner.svelte";
   import TokenCost from "../../components/TokenCost.svelte";
-  import { FileText, Palette, Database, Code, ArrowUp, Settings, Sparkles } from "lucide-svelte";
+  import {
+    FileText,
+    Palette,
+    Database,
+    Code,
+    ArrowUp,
+    Settings,
+    Sparkles,
+  } from "lucide-svelte";
   import { pb } from "$lib/pocketbase.svelte";
-  import type { Message, PreviewError, TokenUsage, PendingPrompt } from "../../types";
-  import { send_prompt, clear_conversation, load_spec } from "../../lib/api.svelte";
+  import type {
+    Message,
+    PreviewError,
+    TokenUsage,
+    PendingPrompt,
+  } from "../../types";
+  import {
+    send_prompt,
+    clear_conversation,
+    load_spec,
+  } from "../../lib/api.svelte";
   import { marked } from "marked";
   import { current_builder_theme } from "$lib/builder_themes";
   import { getProjectContext } from "../../context";
@@ -650,7 +667,10 @@
   function render_markdown(text: string): string {
     // Replace overly enthusiastic/apologetic phrases with neutral tone
     let processed = text;
-    processed = processed.replace(/You're absolutely right!?/gi, "That's correct.");
+    processed = processed.replace(
+      /You're absolutely right!?/gi,
+      "That's correct.",
+    );
     processed = processed.replace(/Absolutely right!?/gi, "Correct.");
 
     // Replace emojis with icon markers before markdown parsing
@@ -658,7 +678,7 @@
       const escaped = emoji.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       processed = processed.replace(
         new RegExp(escaped, "gu"),
-        `[[ICON::${icon}]]`
+        `[[ICON::${icon}]]`,
       );
     }
 
@@ -671,7 +691,7 @@
     // Replace icon markers with iconify-icon web components
     html = html.replace(
       /\[\[ICON::([^\]]+)\]\]/g,
-      '<iconify-icon icon="$1" style="vertical-align: -0.125em;color:var(--builder-accent)"></iconify-icon>'
+      '<iconify-icon icon="$1" style="vertical-align: -0.125em;color:var(--builder-accent)"></iconify-icon>',
     );
 
     return html;
@@ -683,13 +703,13 @@
   // Prose classes that adapt to theme
   let prose_classes = $derived(
     is_light_theme
-      ? "prose prose-sm prose-pre:bg-black/5 prose-pre:border prose-pre:border-black/10 prose-code:before:content-none prose-code:after:content-none prose-headings:font-semibold prose-p:my-2 prose-headings:my-2 max-w-none"
-      : "prose prose-invert prose-sm prose-pre:bg-white/[0.025] prose-pre:border prose-pre:border-white/10 prose-code:before:content-none prose-code:after:content-none prose-headings:font-semibold prose-p:my-2 prose-headings:my-2 max-w-none"
+      ? "prose prose-sm prose-pre:bg-black/5 prose-pre:border prose-pre:border-black/10 prose-code:before:content-none prose-code:after:content-none prose-headings:font-semibold prose-p:my-2 prose-headings:my-2 max-w-none mb-4"
+      : "prose prose-invert prose-sm prose-pre:bg-white/[0.025] prose-pre:border prose-pre:border-white/10 prose-code:before:content-none prose-code:after:content-none prose-headings:font-semibold prose-p:my-2 prose-headings:my-2 max-w-none mb-4",
   );
 
   // Message bubble background that adapts to theme
   let bubble_bg = $derived(
-    is_light_theme ? "bg-black/[0.025]" : "bg-white/[0.025]"
+    is_light_theme ? "bg-black/[0.025]" : "bg-white/[0.025]",
   );
 
   type AgentPanelProps = {
@@ -740,20 +760,39 @@
   let llm_configured = $state<boolean | null>(null); // null = loading, true/false = checked
 
   // localStorage key for persisting draft input
-  const draft_key = `tinykit:agent-draft:${project_id}`
+  const draft_key = `tinykit:agent-draft:${project_id}`;
   let auto_scroll = $state(true);
   let user_scrolled_up = $state(false); // Sticky flag: user manually scrolled up during streaming
   let show_welcome_vibe = $state(false);
   let welcome_timer: ReturnType<typeof setTimeout> | null = null;
-  let file_being_written = $state<string | null>(null);
   let tool_in_progress = $state<string | null>(null);
   let previous_message_length = $state(0);
   let user_dismissed_vibe = $state(false);
   let current_usage = $state<TokenUsage | null>(null);
+  let last_chunk_time = $state<number>(Date.now());
+  let show_processing_indicator = $state(false);
+
+  // Show "Processing..." indicator after 6 seconds of no activity during processing
+  $effect(() => {
+    if (!is_processing) {
+      show_processing_indicator = false;
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const seconds_since_last_chunk = (Date.now() - last_chunk_time) / 1000;
+      show_processing_indicator = seconds_since_last_chunk > 6;
+    }, 500); // Check every 500ms
+
+    return () => clearInterval(interval);
+  });
 
   // Sync vibe zone visibility to parent (for rendering over preview)
   $effect(() => {
-    vibe_zone_visible = vibe_zone_enabled && (show_welcome_vibe || is_processing) && !user_dismissed_vibe;
+    vibe_zone_visible =
+      vibe_zone_enabled &&
+      (show_welcome_vibe || is_processing) &&
+      !user_dismissed_vibe;
   });
 
   // Handle dismiss from parent (when user closes vibe zone)
@@ -767,36 +806,36 @@
   }
 
   onMount(async () => {
-    input_element?.focus()
+    input_element?.focus();
     // Scroll to bottom when mounting (switching to this tab)
-    scroll_to_bottom()
+    scroll_to_bottom();
     // Restore draft from localStorage
-    const saved_draft = localStorage.getItem(draft_key)
+    const saved_draft = localStorage.getItem(draft_key);
     if (saved_draft) {
-      agent_input = saved_draft
+      agent_input = saved_draft;
       // Trigger auto-resize after restoring
-      setTimeout(() => auto_resize_input(), 0)
+      setTimeout(() => auto_resize_input(), 0);
     }
     // Check if LLM is configured
     try {
       const res = await fetch("/api/settings/llm-status", {
-        headers: { "Authorization": `Bearer ${pb.authStore.token}` }
-      })
-      const data = await res.json()
-      llm_configured = data.configured
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      });
+      const data = await res.json();
+      llm_configured = data.configured;
     } catch {
-      llm_configured = false
+      llm_configured = false;
     }
-  })
+  });
 
   // Save draft to localStorage when input changes
   $effect(() => {
     if (agent_input) {
-      localStorage.setItem(draft_key, agent_input)
+      localStorage.setItem(draft_key, agent_input);
     } else {
-      localStorage.removeItem(draft_key)
+      localStorage.removeItem(draft_key);
     }
-  })
+  });
 
   // Scroll to bottom when messages change
   $effect(() => {
@@ -843,9 +882,9 @@
     if (message_container && auto_scroll && !user_scrolled_up) {
       setTimeout(() => {
         if (message_container && !user_scrolled_up) {
-          message_container.scrollTop = message_container.scrollHeight
+          message_container.scrollTop = message_container.scrollHeight;
         }
-      }, 100)
+      }, 100);
     }
   }
 
@@ -884,6 +923,8 @@
     user_dismissed_vibe = false;
     user_scrolled_up = false; // Reset scroll flag for new message
     current_usage = null;
+    last_chunk_time = Date.now();
+    show_processing_indicator = false;
     // Reset textarea height
     if (input_element) {
       input_element.style.height = "auto";
@@ -913,31 +954,44 @@
       // Send full prompt to API (may include hidden instructions)
       const response = await send_prompt(
         project_id,
-        [...messages.slice(0, -1), { role: "user", content: api_prompt + errors_context }],
-        spec
+        [
+          ...messages.slice(0, -1),
+          { role: "user", content: api_prompt + errors_context },
+        ],
+        spec,
       );
 
       if (!response.ok) {
-        const error_data = await response.json().catch(() => ({ error: 'Unknown error' }))
-        throw new Error(error_data.error || `Failed to get response from agent (${response.status})`)
+        const error_data = await response
+          .json()
+          .catch(() => ({ error: "Unknown error" }));
+        throw new Error(
+          error_data.error ||
+            `Failed to get response from agent (${response.status})`,
+        );
       }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
-      let assistant_message = { role: "assistant" as const, content: "" };
+      let assistant_message = {
+        role: "assistant" as const,
+        content: "",
+        stream_items: [],
+      };
       let raw_content = "";
+      let stream_items: Array<{
+        type: "text" | "tool";
+        content?: string;
+        name?: string;
+        args?: Record<string, any>;
+        result?: string;
+      }> = [];
       messages = [...messages, assistant_message];
       previous_message_length = 0;
 
-      // Track streaming code blocks and tool results
-      let current_code_block: {
-        filename: string;
-        language: string;
-        content: string;
-      } | null = null;
+      // Track tool results during streaming
       type ToolResult = { name: string; result: string };
-      let displayed_tool_results = new Set<string>();
       let accumulated_tool_results: ToolResult[] = [];
 
       if (reader) {
@@ -951,6 +1005,7 @@
           for (const line of lines) {
             if (line.startsWith("data: ")) {
               const data = JSON.parse(line.slice(6));
+              console.log("[Agent Stream]", data);
 
               // Handle stream errors
               if (data.error) {
@@ -959,113 +1014,68 @@
 
               if (data.chunk) {
                 raw_content += data.chunk;
+                messages[messages.length - 1].content = raw_content;
 
-                // Extract code blocks and write incrementally
-                const code_block_start = /```(\w+):([^\n]+)\n/g;
-                const match = code_block_start.exec(raw_content);
-
-                // Note: Code blocks with filename (```svelte:App.svelte) are NO LONGER
-                // written here. The LLM uses the write_code tool instead, which is
-                // executed server-side. We only track code blocks for UI purposes.
-                if (match && !current_code_block) {
-                  current_code_block = {
-                    language: match[1],
-                    filename: match[2].trim(),
-                    content: "",
-                  };
-                  // Only show "writing" indicator for legacy code blocks
-                  // The write_code tool has its own indicator
-                  file_being_written = current_code_block.filename;
+                // Add text to stream_items (append to last text item if exists, else create new)
+                const last_item = stream_items[stream_items.length - 1];
+                if (last_item && last_item.type === "text") {
+                  last_item.content += data.chunk;
+                } else {
+                  stream_items.push({ type: "text", content: data.chunk });
                 }
+                messages[messages.length - 1].stream_items = [...stream_items];
 
-                if (current_code_block) {
-                  const block_start_index = raw_content.indexOf(
-                    "```" +
-                      current_code_block.language +
-                      ":" +
-                      current_code_block.filename
-                  );
-                  const content_start_index =
-                    raw_content.indexOf("\n", block_start_index) + 1;
-                  const block_end_index = raw_content.indexOf(
-                    "```",
-                    content_start_index
-                  );
-
-                  if (block_end_index !== -1) {
-                    // Block complete - just clear tracking state
-                    // Code is written via write_code tool, not here
-                    file_being_written = null;
-                    current_code_block = null;
-                  } else if (content_start_index > 0) {
-                    current_code_block.content =
-                      raw_content.substring(content_start_index);
-                  }
-                }
-
-                // Strip tool calls and code blocks from display
-                // Pass accumulated results so they get placed inline
-                const tool_cleaned = strip_tool_calls(
-                  raw_content,
-                  accumulated_tool_results
-                );
-                tool_in_progress = tool_cleaned.in_progress_tool;
-                const { cleaned, active_blocks } = strip_code_blocks(
-                  tool_cleaned.cleaned
-                );
-
-                let display_content = cleaned;
-
-                // Append active code blocks
-                if (active_blocks.length > 0) {
-                  display_content +=
-                    "\n\n" +
-                    active_blocks
-                      .map((b) => `📝 Writing ${b.filename}...`)
-                      .join("\n");
-                }
-
-                messages[messages.length - 1].content = display_content;
-                previous_message_length = cleaned.length;
+                previous_message_length = raw_content.length;
                 messages = messages;
+                last_chunk_time = Date.now(); // Track activity
                 scroll_to_bottom();
+              }
+
+              // Handle tool call streaming start (shows loading immediately)
+              if (data.toolCallStart) {
+                tool_in_progress = data.toolCallStart.name;
+              }
+
+              // Handle tool call complete (has full args)
+              if (data.incremental && data.toolCall && !data.toolResult) {
+                tool_in_progress = data.toolCall.name;
               }
 
               // Handle incremental tool results (during streaming)
               if (data.incremental && data.toolResult) {
-                // Track this result with its tool name
                 const tool_name = data.toolCall?.name || "unknown";
-                displayed_tool_results.add(data.toolResult);
+                const tool_args = data.toolCall?.parameters;
                 accumulated_tool_results.push({
                   name: tool_name,
                   result: data.toolResult,
                 });
 
-                // Rebuild content with new result (same logic as chunk handler)
-                // Results will be placed inline where their <tool> blocks were
-                const tool_cleaned = strip_tool_calls(
-                  raw_content,
-                  accumulated_tool_results
-                );
-                tool_in_progress = tool_cleaned.in_progress_tool;
-                const { cleaned, active_blocks } = strip_code_blocks(
-                  tool_cleaned.cleaned
-                );
+                // Add tool to stream_items in order (when result arrives)
+                stream_items.push({
+                  type: "tool",
+                  name: tool_name,
+                  args: tool_args,
+                  result: data.toolResult,
+                });
 
-                let display_content = cleaned;
+                // Tool completed, clear in-progress state
+                tool_in_progress = null;
 
-                // Append active code blocks
-                if (active_blocks.length > 0) {
-                  display_content +=
-                    "\n\n" +
-                    active_blocks
-                      .map((b) => `📝 Writing ${b.filename}...`)
-                      .join("\n");
+                // Immediately update message with tool_calls so buttons appear right away
+                if (
+                  messages.length > 0 &&
+                  messages[messages.length - 1].role === "assistant"
+                ) {
+                  messages[messages.length - 1].stream_items = [
+                    ...stream_items,
+                  ];
+                  messages[messages.length - 1].tool_calls =
+                    accumulated_tool_results.map((tr) => ({
+                      name: tr.name,
+                      result: tr.result,
+                    }));
+                  messages = messages; // Trigger reactivity
                 }
-
-                messages[messages.length - 1].content = display_content;
-                messages = messages;
-                scroll_to_bottom();
 
                 // Check if content/design/data was created - notify Preview to update
                 const config_tools = [
@@ -1074,91 +1084,16 @@
                   "create_data_file",
                   "insert_records",
                 ];
-                if (
-                  data.toolCall &&
-                  config_tools.includes(data.toolCall.name)
-                ) {
-                  // Refresh data files list
+                if (config_tools.includes(tool_name)) {
                   await on_load_data_files();
                   window.dispatchEvent(
-                    new CustomEvent("tinykit:config-updated")
+                    new CustomEvent("tinykit:config-updated"),
                   );
                 }
 
                 // Check if write_code tool was called - update preview with new content
-                if (data.toolCall && data.toolCall.name === "write_code") {
-                  const code = data.toolCall.parameters?.code;
-                  if (code) {
-                    on_code_written(code);
-                  }
-                  on_refresh_preview();
-                }
-              }
-
-              // Handle batch tool results (for backwards compatibility)
-              if (data.toolCalls && data.toolResults) {
-                // Add any new results, paired with their tool names
-                for (let i = 0; i < data.toolResults.length; i++) {
-                  const result = data.toolResults[i];
-                  const tool_name = data.toolCalls[i]?.name || "unknown";
-                  if (!displayed_tool_results.has(result)) {
-                    displayed_tool_results.add(result);
-                    accumulated_tool_results.push({
-                      name: tool_name,
-                      result: result,
-                    });
-                  }
-                }
-
-                // Rebuild with all results placed inline
-                const tool_cleaned = strip_tool_calls(
-                  raw_content,
-                  accumulated_tool_results
-                );
-                tool_in_progress = tool_cleaned.in_progress_tool;
-                const { cleaned, active_blocks } = strip_code_blocks(
-                  tool_cleaned.cleaned
-                );
-
-                let display_content = cleaned;
-
-                // Append active code blocks
-                if (active_blocks.length > 0) {
-                  display_content +=
-                    "\n\n" +
-                    active_blocks
-                      .map((b) => `📝 Writing ${b.filename}...`)
-                      .join("\n");
-                }
-
-                messages[messages.length - 1].content = display_content;
-                messages = messages;
-                scroll_to_bottom();
-
-                // Check if any content/design/data was created
-                const config_tools = [
-                  "create_content_field",
-                  "create_design_field",
-                  "create_data_file",
-                  "insert_records",
-                ];
-                const has_config_changes = data.toolCalls.some((call: any) =>
-                  config_tools.includes(call.name)
-                );
-                if (has_config_changes) {
-                  // Refresh data files list and notify preview to reload
-                  await on_load_data_files();
-                  window.dispatchEvent(
-                    new CustomEvent("tinykit:config-updated")
-                  );
-                }
-
-                // Check if write_code was called
-                const write_code_call = data.toolCalls.find(
-                  (call: any) => call.name === "write_code"
-                );
-                if (write_code_call) {
-                  const code = write_code_call.parameters?.code;
+                if (tool_name === "write_code") {
+                  const code = data.toolCall?.parameters?.code;
                   if (code) {
                     on_code_written(code);
                   }
@@ -1169,12 +1104,20 @@
               // Handle completion with usage data
               if (data.done && data.usage) {
                 current_usage = data.usage;
-                // Attach usage to the last assistant message
+                // Attach usage and tool_calls to the last assistant message
                 if (
                   messages.length > 0 &&
                   messages[messages.length - 1].role === "assistant"
                 ) {
                   messages[messages.length - 1].usage = data.usage;
+                  // Convert accumulated_tool_results to tool_calls format
+                  if (accumulated_tool_results.length > 0) {
+                    messages[messages.length - 1].tool_calls =
+                      accumulated_tool_results.map((tr) => ({
+                        name: tr.name,
+                        result: tr.result,
+                      }));
+                  }
                   messages = messages;
                 }
               }
@@ -1192,14 +1135,17 @@
       }
     } catch (error) {
       console.error("Failed to send message:", error);
-      const error_message = error instanceof Error ? error.message : String(error)
-      messages = [...messages, {
-        role: "assistant",
-        content: `Error: ${error_message}`,
-      }];
+      const error_message =
+        error instanceof Error ? error.message : String(error);
+      messages = [
+        ...messages,
+        {
+          role: "assistant",
+          content: `Error: ${error_message}`,
+        },
+      ];
     } finally {
       is_processing = false;
-      file_being_written = null;
       tool_in_progress = null;
     }
   }
@@ -1215,13 +1161,11 @@
     }
   }
 
-  // Helper functions for stripping tool calls and code blocks
-  type ToolResultItem = { name: string; result: string };
-
+  // Helper functions for code blocks and tool display
   // Extract field name from tool result string
   function extract_field_name(
     tool_name: string,
-    result: string
+    result: string,
   ): string | null {
     if (tool_name === "create_content_field") {
       // Pattern: Created content field "FIELD_NAME" ...
@@ -1245,120 +1189,6 @@
       return match ? match[1] : null;
     }
     return null;
-  }
-
-  function strip_tool_calls(
-    text: string,
-    completed_results: ToolResultItem[] = []
-  ): {
-    cleaned: string;
-    has_incomplete_tool: boolean;
-    in_progress_tool: string | null;
-    inline_results: ToolResultItem[];
-  } {
-    let cleaned = text;
-    let result_index = 0;
-    const inline_results: ToolResultItem[] = [];
-    let pending_tool: string | null = null;
-
-    // Replace completed tool blocks with markers, track which results are used
-    cleaned = cleaned.replace(
-      /<tool>[\s\S]*?<\/tool>/g,
-      (match, offset, fullString) => {
-        if (result_index < completed_results.length) {
-          const tool_result = completed_results[result_index++];
-          inline_results.push(tool_result);
-          // Check if there's a newline after the closing tag
-          const nextChar = fullString[offset + match.length];
-          const needsTrailingNewline = nextChar && nextChar !== "\n";
-
-          // Extract field name for content/design/data tools
-          const field_name = extract_field_name(
-            tool_result.name,
-            tool_result.result
-          );
-          const marker_suffix = field_name ? `:${field_name}` : "";
-
-          return (
-            "\n\n~~~tool:" +
-            tool_result.name +
-            marker_suffix +
-            "~~~" +
-            (needsTrailingNewline ? "\n\n" : "")
-          );
-        }
-        // Tool block is complete but no result yet - extract tool name for pending state
-        const name_match = match.match(/<name>(\w+)<\/name>/);
-        if (name_match) {
-          pending_tool = name_match[1];
-        }
-        // Remove the block from display (will show loading state via pending_tool)
-        return "";
-      }
-    );
-
-    // Detect which tool is currently in progress (incomplete block OR pending result)
-    let in_progress_tool: string | null = pending_tool;
-    const has_incomplete_tool = cleaned.includes("<tool>");
-    if (has_incomplete_tool) {
-      const incomplete_start = cleaned.indexOf("<tool>");
-      const incomplete_block = cleaned.substring(incomplete_start);
-      const name_match = incomplete_block.match(/<name>(\w+)<\/name>/);
-      if (name_match) {
-        in_progress_tool = name_match[1];
-      }
-      cleaned = cleaned.substring(0, incomplete_start).trim();
-    }
-
-    // Buffer partial tag prefixes to avoid showing "<too" etc during streaming
-    // Check if text ends with a potential partial <tool> or </tool> tag
-    const partial_prefixes = [
-      "</tool", "</too", "</to", "</t", "</",  // closing tag
-      "<tool", "<too", "<to", "<t", "<"         // opening tag
-    ];
-    for (const prefix of partial_prefixes) {
-      if (cleaned.endsWith(prefix)) {
-        cleaned = cleaned.slice(0, -prefix.length).trim();
-        break;
-      }
-    }
-
-    cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
-    return { cleaned, has_incomplete_tool, in_progress_tool, inline_results };
-  }
-
-  function strip_code_blocks(text: string): {
-    cleaned: string;
-    active_blocks: Array<{ filename: string; language: string }>;
-  } {
-    // First, check for incomplete blocks BEFORE removing complete ones
-    const active_blocks: Array<{ filename: string; language: string }> = [];
-    const incomplete_block_regex = /```(\w+):([^\n]+)(?!\n[\s\S]*?```)/g;
-    let incomplete_block_start = -1;
-
-    let match;
-    while ((match = incomplete_block_regex.exec(text)) !== null) {
-      active_blocks.push({
-        language: match[1],
-        filename: match[2].trim(),
-      });
-      if (incomplete_block_start === -1) {
-        incomplete_block_start = match.index;
-      }
-    }
-
-    // Replace complete code blocks with markers (preserves text after block)
-    let cleaned = text
-      .replace(/```[\w]+:[^\n]+\n[\s\S]*?```/g, "\n\n~~~code~~~\n\n")
-      .trim();
-
-    // If there's an incomplete block, truncate at its position
-    if (incomplete_block_start !== -1) {
-      cleaned = text.substring(0, incomplete_block_start).trim();
-    }
-
-    cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-    return { cleaned, active_blocks };
   }
 </script>
 
@@ -1385,7 +1215,9 @@
       <div class="text-[var(--builder-text-secondary)] text-center py-12">
         {#if llm_configured === false}
           <div class="flex flex-col items-center gap-4">
-            <div class="w-12 h-12 rounded-full bg-[var(--builder-bg-tertiary)] flex items-center justify-center">
+            <div
+              class="w-12 h-12 rounded-full bg-[var(--builder-bg-tertiary)] flex items-center justify-center"
+            >
               <Sparkles class="w-6 h-6 text-[var(--builder-text-muted)]" />
             </div>
             <div>
@@ -1393,7 +1225,8 @@
                 AI not configured
               </p>
               <p class="mt-2 max-w-xs mx-auto">
-                Add an API key to use the AI assistant, or use templates and manual editing.
+                Add an API key to use the AI assistant, or use templates and
+                manual editing.
               </p>
             </div>
             <a
@@ -1429,165 +1262,115 @@
                 {@html render_markdown(message.content)}
               </div>
             {:else}
-              {@const writing_parts =
-                message.content.split(/\n\n(?=📝 Writing)/)}
-              {@const code_parts = writing_parts[0].split(/\n\n(?=~~~code~~~)/)}
-              {@const tool_parts = code_parts[0].split(/\n+(?=~~~tool:)/)}
-              {@const main_text_raw = tool_parts[0]}
-              {@const main_text = main_text_raw.replace(/~~~tool:\w+(?::[^~]+)?~~~/g, '').replace(/~~~code~~~/g, '').trim()}
-              {@const leading_markers = [...main_text_raw.matchAll(/~~~tool:(\w+)(?::([^~]+))?~~~/g)].map(m => ({ name: m[1], field: m[2] || null }))}
-              {@const all_tool_markers = [...leading_markers, ...tool_parts.slice(1).map(marker => {
-                const match = marker.match(/^~~~tool:(\w+)(?::([^~]+))?~~~/)
-                return match ? { name: match[1], field: match[2] || null, remaining: marker.replace(/^~~~tool:\w+(?::[^~]+)?~~~\n*/, '').trim() } : null
-              }).filter(Boolean)]}
               {@const is_streaming =
                 idx === messages.length - 1 && is_processing}
-              {@const should_animate =
-                is_streaming &&
-                main_text.length > previous_message_length &&
-                previous_message_length > 0}
-              {@const old_text = should_animate
-                ? main_text.substring(0, previous_message_length)
-                : main_text}
-              {@const new_text = should_animate
-                ? main_text.substring(previous_message_length)
-                : ""}
-              <div class={prose_classes}>
-                {@html render_markdown(old_text)}
-                {#if new_text}
-                  <span in:fade class="streaming-text">
-                    {@html render_markdown(new_text)}
-                  </span>
-                {/if}
-              </div>
-              {#if all_tool_markers.length > 0}
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  {#each all_tool_markers as tool_marker}
-                    {@const tool_name = tool_marker.name}
-                    {@const field_name = tool_marker.field}
-                    {@const remaining_text = tool_marker.remaining || ""}
 
-                    {#if tool_name === "update_spec"}
-                      <!-- Spec updates are silent - no UI shown -->
-                    {:else if tool_name === "create_content_field"}
-                      <button
-                        in:fade
-                        onclick={() => {
-                          on_load_config();
-                          on_navigate_to_field("content", field_name || undefined);
-                        }}
-                        class="tool-button tool-button--content tool-button--interactive"
-                      >
-                        <FileText class="w-3 h-3" />
-                        <span>{field_name || "Content"}</span>
-                      </button>
-                    {:else if tool_name === "create_design_field"}
-                      <button
-                        in:fade
-                        onclick={() => {
-                          on_load_config();
-                          on_navigate_to_field("design", field_name || undefined);
-                        }}
-                        class="tool-button tool-button--design tool-button--interactive"
-                      >
-                        <Palette class="w-3 h-3" />
-                        <span>{field_name || "Design"}</span>
-                      </button>
-                    {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
-                      <button
-                        onclick={() => {
-                          on_navigate_to_field("data", field_name || undefined);
-                          on_load_data_files();
-                        }}
-                        class="tool-button tool-button--data tool-button--interactive"
-                      >
-                        <Database class="w-3 h-3" />
-                        <span>{field_name || "Data"}</span>
-                      </button>
-                    {:else if tool_name === "write_code"}
-                      <button
-                        in:fade
-                        onclick={() => {
-                          on_navigate_to_field("code");
-                        }}
-                        class="tool-button tool-button--code tool-button--interactive"
-                      >
-                        <Code class="w-3 h-3" />
-                        <span>Code</span>
-                      </button>
-                    {:else}
-                      <div
-                        in:fade
-                        class="tool-button tool-button--success"
-                      >
-                        <iconify-icon icon="lucide:check" class="w-3 h-3"
-                        ></iconify-icon>
-                        <span>{tool_name}</span>
-                      </div>
-                    {/if}
-
-                    <!-- Display any text that follows this tool result -->
-                    {#if remaining_text}
-                      <div class="w-full mt-2 {prose_classes}">
-                        {@html render_markdown(remaining_text)}
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-              {#if code_parts.length > 1}
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  {#each code_parts.slice(1) as code_marker}
-                    <button
-                      onclick={() => {
-                        on_navigate_to_field("code");
-                      }}
-                      class="tool-button tool-button--code tool-button--interactive"
-                    >
-                      <Code class="w-3 h-3" />
-                      <span>Code</span>
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-              {#if is_streaming && tool_in_progress === "write_code"}
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  <button
-                    onclick={() => {
-                      on_navigate_to_field("code");
-                    }}
-                    class="tool-button tool-button--code tool-button--interactive"
-                  >
-                    <Spinner size="sm" />
-                    <span>Code</span>
-                  </button>
-                </div>
-              {/if}
-              {#if writing_parts.length > 1}
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  {#each writing_parts.slice(1) as writing_line}
-                    {@const is_being_written =
-                      file_being_written ===
-                      writing_line
-                        .replace("📝 Writing ", "")
-                        .replace(/\.\.\.$/, "")
-                        .trim()}
-                    <button
-                      onclick={() => {
-                        on_navigate_to_field("code");
-                        on_file_select(`${project_id}/src/App.svelte`);
-                      }}
-                      class="tool-button tool-button--code tool-button--interactive"
-                    >
-                      {#if is_being_written}
-                        <Spinner size="sm" />
+              {#if message.stream_items && message.stream_items.length > 0}
+                <!-- Render items in stream order -->
+                {#each message.stream_items as item, item_idx}
+                  {#if item.type === "text"}
+                    <div class={prose_classes}>
+                      {@html render_markdown(item.content || "")}
+                    </div>
+                  {:else if item.type === "tool"}
+                    {@const tool_name = item.name || "unknown"}
+                    {@const field_name = extract_field_name(
+                      tool_name,
+                      item.result || "",
+                    )}
+                    <div class="tool-button-container">
+                      {#if tool_name === "update_spec"}
+                        <!-- Spec updates are silent - no UI shown -->
+                      {:else if tool_name === "create_content_field"}
+                        <button
+                          onclick={() => {
+                            on_load_config();
+                            on_navigate_to_field(
+                              "content",
+                              field_name || undefined,
+                            );
+                          }}
+                          class="tool-button tool-button--content tool-button--interactive"
+                        >
+                          <FileText class="w-3 h-3" />
+                          <span>{field_name || "Content"}</span>
+                        </button>
+                      {:else if tool_name === "create_design_field"}
+                        <button
+                          onclick={() => {
+                            on_load_config();
+                            on_navigate_to_field(
+                              "design",
+                              field_name || undefined,
+                            );
+                          }}
+                          class="tool-button tool-button--design tool-button--interactive"
+                        >
+                          <Palette class="w-3 h-3" />
+                          <span>{field_name || "Design"}</span>
+                        </button>
+                      {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
+                        <button
+                          onclick={() => {
+                            on_navigate_to_field(
+                              "data",
+                              field_name || undefined,
+                            );
+                            on_load_data_files();
+                          }}
+                          class="tool-button tool-button--data tool-button--interactive"
+                        >
+                          <Database class="w-3 h-3" />
+                          <span>{field_name || "Data"}</span>
+                        </button>
+                      {:else if tool_name === "write_code"}
+                        <button
+                          onclick={() => {
+                            on_navigate_to_field("code");
+                          }}
+                          class="tool-button tool-button--code tool-button--interactive"
+                        >
+                          <Code class="w-3 h-3" />
+                          <span>Code</span>
+                        </button>
                       {:else}
-                        <Code class="w-3 h-3" />
+                        <div in:fade class="tool-button tool-button--success">
+                          <iconify-icon icon="lucide:check" class="w-3 h-3"
+                          ></iconify-icon>
+                          <span>{tool_name}</span>
+                        </div>
                       {/if}
+                    </div>
+                  {/if}
+                {/each}
+              {:else}
+                <!-- Fallback for old messages without stream_items -->
+                <div class={prose_classes}>
+                  {@html render_markdown(message.content)}
+                </div>
+              {/if}
+
+              <!-- Show code loading during lull (likely generating code) -->
+              {#if is_streaming && show_processing_indicator && message.stream_items}
+                {@const has_text = message.stream_items.some(
+                  (item) => item.type === "text",
+                )}
+                {@const has_code = message.stream_items.some(
+                  (item) => item.type === "tool" && item.name === "write_code",
+                )}
+                {#if has_text && !has_code}
+                  <div class="tool-button-container">
+                    <button
+                      onclick={() => {
+                        on_navigate_to_field("code");
+                      }}
+                      class="tool-button tool-button--code tool-button--interactive"
+                    >
+                      <Spinner size="sm" />
                       <span>Code</span>
                     </button>
-                  {/each}
-                </div>
+                  </div>
+                {/if}
               {/if}
               <!-- Token usage display for assistant messages -->
               {#if message.usage && !is_streaming}
@@ -1601,7 +1384,21 @@
       {/each}
       {#if is_processing}
         <div class="pl-1 text-[var(--builder-text-secondary)]">
-          <span in:fade class="animate-pulse">Inferring...</span>
+          {#if show_processing_indicator}
+            <span in:fade class="animate-pulse">Processing...</span>
+          {:else}
+            <span in:fade class="animate-pulse">Inferring...</span>
+          {/if}
+        </div>
+        <!-- Loading Indicator -->
+        <div
+          in:fade={{ duration: 200 }}
+          out:fade={{ duration: 300 }}
+          class="loading-bar-container h-[2px] w-full bg-[var(--builder-border)]/50 relative overflow-hidden mt-3 rounded-[1rem]"
+        >
+          <div
+            class="loading-bar absolute h-full w-1/2 bg-[var(--builder-accent)] rounded-[1rem]"
+          ></div>
         </div>
       {/if}
     {/if}
@@ -1623,21 +1420,29 @@
     {/if}
     <div class="p-4">
       <div class="flex items-start gap-2">
-        <span class="text-[var(--builder-accent)] pt-0.5 hidden sm:block">></span>
+        <span class="text-[var(--builder-accent)] pt-0.5 hidden sm:block"
+          >></span
+        >
         <textarea
           bind:this={input_element}
           bind:value={agent_input}
           onkeydown={handle_keydown}
           oninput={auto_resize_input}
-          placeholder={llm_configured === false ? "AI not configured" : "Make a todo list"}
+          placeholder={llm_configured === false
+            ? "AI not configured"
+            : "Make a todo list"}
           class="mt-[3px] flex-1 bg-transparent text-[var(--builder-text-primary)] placeholder:text-[var(--builder-text-secondary)] placeholder:opacity-50 focus:outline-none font-sans resize-none overflow-hidden min-h-[1.5rem] max-h-[12rem]"
           disabled={is_processing || llm_configured === false}
           rows="1"
         ></textarea>
         <button
           onclick={send_message}
-          disabled={is_processing || !agent_input.trim() || llm_configured === false}
-          class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors {agent_input.trim() && !is_processing && llm_configured !== false
+          disabled={is_processing ||
+            !agent_input.trim() ||
+            llm_configured === false}
+          class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors {agent_input.trim() &&
+          !is_processing &&
+          llm_configured !== false
             ? 'bg-[var(--builder-accent)] text-white'
             : 'bg-[var(--builder-bg-tertiary)] text-[var(--builder-text-secondary)]'}"
         >
@@ -1645,7 +1450,6 @@
         </button>
       </div>
     </div>
-
   </div>
 </div>
 
@@ -1664,6 +1468,11 @@
   }
 
   /* Tool button base styles */
+  .tool-button-container {
+    display: inline-flex;
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
   .tool-button {
     display: inline-flex;
     align-items: center;
@@ -1673,7 +1482,9 @@
     font-size: 0.75rem;
     line-height: 1rem;
     border: 1px solid;
-    transition: background-color 0.15s, border-color 0.15s;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
   }
 
   .tool-button--interactive {
@@ -1758,5 +1569,37 @@
     background: transparent !important;
     color: var(--builder-text-primary);
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Courier New", monospace;
+  }
+
+  /* Loading bar animation */
+  @keyframes slide {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(400%);
+    }
+  }
+
+  .loading-bar-container {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 20%,
+      black 80%,
+      transparent
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 20%,
+      black 80%,
+      transparent
+    );
+  }
+
+  .loading-bar {
+    animation: slide 1.5s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--builder-accent);
   }
 </style>
