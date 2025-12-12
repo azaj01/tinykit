@@ -311,7 +311,6 @@ CSS variable is auto-generated from name: "Card Background" → --card-backgroun
 				const schema: Array<{ name: string; type: string }> = []
 				if (records_with_ids.length > 0) {
 					for (const [key, value] of Object.entries(records_with_ids[0])) {
-						if (['id', 'created', 'updated'].includes(key)) continue
 						let type = 'text'
 						if (typeof value === 'number') type = 'number'
 						else if (typeof value === 'boolean') type = 'boolean'
