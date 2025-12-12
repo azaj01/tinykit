@@ -763,8 +763,6 @@
   const draft_key = `tinykit:agent-draft:${project_id}`;
   let auto_scroll = $state(true);
   let user_scrolled_up = $state(false); // Sticky flag: user manually scrolled up during streaming
-  let show_welcome_vibe = $state(false);
-  let welcome_timer: ReturnType<typeof setTimeout> | null = null;
   let tool_in_progress = $state<string | null>(null);
   let previous_message_length = $state(0);
   let user_dismissed_vibe = $state(false);
@@ -790,19 +788,12 @@
   // Sync vibe zone visibility to parent (for rendering over preview)
   $effect(() => {
     vibe_zone_visible =
-      vibe_zone_enabled &&
-      (show_welcome_vibe || is_processing) &&
-      !user_dismissed_vibe;
+      vibe_zone_enabled && is_processing && !user_dismissed_vibe;
   });
 
   // Handle dismiss from parent (when user closes vibe zone)
   export function dismiss_vibe() {
-    show_welcome_vibe = false;
     user_dismissed_vibe = true;
-    if (welcome_timer) {
-      clearTimeout(welcome_timer);
-      welcome_timer = null;
-    }
   }
 
   onMount(async () => {
@@ -995,16 +986,29 @@
       let accumulated_tool_results: ToolResult[] = [];
 
       if (reader) {
+        let sse_buffer = "";
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n\n");
+          // Accumulate chunks in buffer (use stream: true for multi-byte chars)
+          sse_buffer += decoder.decode(value, { stream: true });
 
-          for (const line of lines) {
+          // Split by SSE message delimiter
+          const parts = sse_buffer.split("\n\n");
+          // Keep last part in buffer (may be incomplete)
+          sse_buffer = parts.pop() || "";
+
+          for (const line of parts) {
             if (line.startsWith("data: ")) {
-              const data = JSON.parse(line.slice(6));
+              let data;
+              try {
+                data = JSON.parse(line.slice(6));
+              } catch (parse_error) {
+                console.error("[SSE Parse Error]", parse_error, "Line:", line);
+                continue; // Skip malformed messages
+              }
               console.log("[Agent Stream]", data);
 
               // Handle stream errors
@@ -1125,14 +1129,6 @@
           }
         }
       }
-
-      // Show welcome vibe for 6 seconds
-      if (vibe_zone_enabled) {
-        show_welcome_vibe = true;
-        welcome_timer = setTimeout(() => {
-          show_welcome_vibe = false;
-        }, 6000);
-      }
     } catch (error) {
       console.error("Failed to send message:", error);
       const error_message =
@@ -1192,10 +1188,7 @@
   }
 </script>
 
-<div
-  in:fade={{ duration: 100, delay: 100 }}
-  class="h-full flex flex-col text-sm relative"
->
+<div class="h-full flex flex-col text-sm relative">
   <!-- Message History -->
   <div
     bind:this={message_container}

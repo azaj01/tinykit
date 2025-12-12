@@ -2,7 +2,6 @@
   import { onDestroy } from "svelte";
   import { watch } from "runed";
   import CodeMirror from "$lib/components/CodeMirror.client.svelte";
-  import Spinner from "$lib/components/Spinner.svelte";
   import { LaptopMinimal, Server } from "lucide-svelte";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import type { EditorLanguage } from "../../types";
