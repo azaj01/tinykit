@@ -2,8 +2,8 @@
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { Button } from "$lib/components/ui/button";
-  import Spinner from "$lib/components/Spinner.svelte";
   import TokenCost from "../../components/TokenCost.svelte";
+  import { emoji_to_icon } from "./emojis";
   import {
     FileText,
     Palette,
@@ -15,7 +15,7 @@
   } from "lucide-svelte";
   import { pb } from "$lib/pocketbase.svelte";
   import type {
-    Message,
+    AgentMessage,
     PreviewError,
     TokenUsage,
     PendingPrompt,
@@ -38,634 +38,8 @@
     gfm: true,
   });
 
-  // Map common emojis to iconify identifiers
-  const emoji_to_icon: Record<string, string> = {
-    // Faces & emotions
-    "😀": "lucide:smile",
-    "😃": "lucide:smile",
-    "😄": "lucide:smile",
-    "😁": "lucide:smile",
-    "😆": "lucide:laugh",
-    "😅": "lucide:smile",
-    "🤣": "lucide:laugh",
-    "😂": "lucide:laugh",
-    "🙂": "lucide:smile",
-    "🙃": "lucide:smile",
-    "😉": "lucide:smile",
-    "😊": "lucide:smile",
-    "😇": "lucide:smile",
-    "🥰": "lucide:heart",
-    "😍": "lucide:heart",
-    "🤩": "lucide:star",
-    "😘": "lucide:heart",
-    "😗": "lucide:smile",
-    "☺️": "lucide:smile",
-    "😚": "lucide:smile",
-    "😙": "lucide:smile",
-    "🥲": "lucide:smile",
-    "😋": "lucide:smile",
-    "😛": "lucide:smile",
-    "😜": "lucide:smile",
-    "🤪": "lucide:smile",
-    "😝": "lucide:smile",
-    "🤑": "lucide:coins",
-    "🤗": "lucide:smile",
-    "🤭": "lucide:smile",
-    "🤫": "lucide:volume-x",
-    "🤔": "lucide:help-circle",
-    "🤐": "lucide:lock",
-    "🤨": "lucide:scan-eye",
-    "😐": "lucide:meh",
-    "😑": "lucide:meh",
-    "😶": "lucide:meh",
-    "😏": "lucide:smile",
-    "😒": "lucide:meh",
-    "🙄": "lucide:eye",
-    "😬": "lucide:meh",
-    "🤥": "lucide:x-circle",
-    "😌": "lucide:smile",
-    "😔": "lucide:frown",
-    "😪": "lucide:moon",
-    "🤤": "lucide:smile",
-    "😴": "lucide:moon",
-    "😷": "lucide:shield",
-    "🤒": "lucide:thermometer",
-    "🤕": "mdi:bandage",
-    "🤢": "lucide:frown",
-    "🤮": "lucide:frown",
-    "🤧": "lucide:frown",
-    "🥵": "lucide:thermometer-sun",
-    "🥶": "lucide:thermometer-snowflake",
-    "🥴": "lucide:meh",
-    "😵": "lucide:x",
-    "🤯": "lucide:zap",
-    "🤠": "lucide:smile",
-    "🥳": "lucide:party-popper",
-    "🥸": "lucide:glasses",
-    "😎": "lucide:glasses",
-    "🤓": "lucide:glasses",
-    "🧐": "lucide:scan-eye",
-    "😕": "lucide:frown",
-    "😟": "lucide:frown",
-    "🙁": "lucide:frown",
-    "☹️": "lucide:frown",
-    "😮": "lucide:circle",
-    "😯": "lucide:circle",
-    "😲": "lucide:circle",
-    "😳": "lucide:circle",
-    "🥺": "lucide:frown",
-    "😦": "lucide:frown",
-    "😧": "lucide:frown",
-    "😨": "lucide:alert-triangle",
-    "😰": "lucide:alert-triangle",
-    "😥": "lucide:frown",
-    "😢": "lucide:frown",
-    "😭": "lucide:frown",
-    "😱": "lucide:alert-circle",
-    "😖": "lucide:frown",
-    "😣": "lucide:frown",
-    "😞": "lucide:frown",
-    "😓": "lucide:frown",
-    "😩": "lucide:frown",
-    "😫": "lucide:frown",
-    "🥱": "lucide:moon",
-    "😤": "lucide:angry",
-    "😡": "lucide:angry",
-    "😠": "lucide:angry",
-    "🤬": "lucide:angry",
-    "😈": "lucide:smile",
-    "👿": "lucide:angry",
-    "💩": "lucide:trash-2",
-    "🤡": "lucide:smile",
-    "👹": "lucide:skull",
-    "👺": "lucide:skull",
-    "👻": "lucide:ghost",
-    "👽": "lucide:bot",
-    "🙈": "lucide:eye-off",
-    "🙉": "lucide:ear-off",
-    "🙊": "lucide:volume-x",
-
-    // Status & feedback
-    "✅": "lucide:check-circle-2",
-    "❌": "lucide:x-circle",
-    "⚠️": "lucide:alert-triangle",
-    "✓": "lucide:check",
-    "✔️": "lucide:check",
-    "☑️": "lucide:square-check",
-    "❗": "lucide:alert-circle",
-    "❓": "lucide:help-circle",
-    ℹ️: "lucide:info",
-    "💯": "lucide:badge-check",
-
-    // Actions & productivity
-    "✨": "lucide:sparkles",
-    "💡": "lucide:lightbulb",
-    "🎯": "lucide:target",
-    "🚀": "lucide:rocket",
-    "⚡": "lucide:zap",
-    "🔥": "lucide:flame",
-    "💪": "lucide:dumbbell",
-    "🏆": "lucide:trophy",
-    "🎉": "lucide:party-popper",
-    "🎊": "lucide:party-popper",
-    "✏️": "lucide:pencil",
-    "🖊️": "lucide:pen",
-    "🖋️": "lucide:pen-tool",
-
-    // Files & documents
-    "📝": "lucide:file-text",
-    "📄": "lucide:file",
-    "📃": "lucide:file-text",
-    "📑": "lucide:files",
-    "📁": "lucide:folder",
-    "📂": "lucide:folder-open",
-    "🗂️": "lucide:folders",
-    "📋": "lucide:clipboard",
-    "📎": "lucide:paperclip",
-    "🔖": "lucide:bookmark",
-    "📌": "lucide:pin",
-    "🏷️": "lucide:tag",
-    "🗒️": "lucide:sticky-note",
-    "📒": "lucide:notebook",
-    "📓": "lucide:notebook",
-    "📔": "lucide:book",
-    "📕": "lucide:book",
-    "📗": "lucide:book",
-    "📘": "lucide:book",
-    "📙": "lucide:book",
-    "📚": "lucide:library",
-
-    // Development & tools
-    "🔧": "lucide:wrench",
-    "🛠️": "lucide:settings",
-    "⚙️": "lucide:cog",
-    "🔩": "lucide:wrench",
-    "🧰": "lucide:briefcase",
-    "💻": "lucide:laptop",
-    "🖥️": "lucide:monitor",
-    "⌨️": "lucide:keyboard",
-    "🖱️": "lucide:mouse",
-    "🐛": "lucide:bug",
-    "🧪": "lucide:flask-conical",
-    "🔬": "lucide:microscope",
-    "⚗️": "lucide:flask-conical",
-    "🧬": "lucide:dna",
-    "🤖": "lucide:bot",
-    "🧩": "lucide:puzzle",
-
-    // Design & visuals
-    "🎨": "lucide:palette",
-    "🖼️": "lucide:image",
-    "🖌️": "lucide:brush",
-    "✒️": "lucide:pen-tool",
-    "🌈": "lucide:rainbow",
-    "💎": "lucide:gem",
-    "💠": "lucide:diamond",
-
-    // Data & charts
-    "📊": "lucide:bar-chart",
-    "📈": "lucide:trending-up",
-    "📉": "lucide:trending-down",
-    "📐": "lucide:ruler",
-    "📏": "lucide:ruler",
-    "🔢": "lucide:hash",
-    "#️⃣": "lucide:hash",
-    "🧮": "lucide:calculator",
-    "📆": "lucide:calendar",
-    "📅": "lucide:calendar",
-    "🗓️": "lucide:calendar-days",
-
-    // Storage & packages
-    "📦": "lucide:package",
-    "🗃️": "lucide:archive",
-    "🗄️": "lucide:hard-drive",
-    "💾": "lucide:save",
-    "💿": "lucide:disc",
-    "📀": "lucide:disc",
-    "🗑️": "lucide:trash-2",
-
-    // Security & privacy
-    "🔒": "lucide:lock",
-    "🔓": "lucide:unlock",
-    "🔐": "lucide:lock-keyhole",
-    "🔑": "lucide:key",
-    "🗝️": "lucide:key-round",
-    "🛡️": "lucide:shield",
-    "🔏": "lucide:lock",
-    "🛂": "lucide:shield-check",
-    "👁️": "lucide:eye",
-    "👁️‍🗨️": "lucide:eye",
-
-    // Communication
-    "📧": "lucide:mail",
-    "✉️": "lucide:mail",
-    "📩": "lucide:mail",
-    "📨": "lucide:mail-open",
-    "📬": "lucide:mailbox",
-    "📭": "lucide:mailbox",
-    "📮": "lucide:mailbox",
-    "💬": "lucide:message-circle",
-    "💭": "lucide:message-circle",
-    "🗨️": "lucide:message-square",
-    "🗯️": "lucide:message-square",
-    "📢": "lucide:megaphone",
-    "📣": "lucide:megaphone",
-    "🔔": "lucide:bell",
-    "🔕": "lucide:bell-off",
-    "📞": "lucide:phone",
-    "📱": "lucide:smartphone",
-    "☎️": "lucide:phone",
-    "📲": "lucide:smartphone",
-
-    // Media
-    "📷": "lucide:camera",
-    "📸": "lucide:camera",
-    "📹": "lucide:video",
-    "🎥": "lucide:video",
-    "🎬": "lucide:clapperboard",
-    "🎵": "lucide:music",
-    "🎶": "lucide:music-2",
-    "🎤": "lucide:mic",
-    "🎧": "lucide:headphones",
-    "🔊": "lucide:volume-2",
-    "🔉": "lucide:volume-1",
-    "🔈": "lucide:volume",
-    "🔇": "lucide:volume-x",
-    "▶️": "lucide:play",
-    "⏸️": "lucide:pause",
-    "⏹️": "lucide:square",
-    "⏺️": "lucide:circle",
-    "⏭️": "lucide:skip-forward",
-    "⏮️": "lucide:skip-back",
-    "⏩": "lucide:fast-forward",
-    "⏪": "lucide:rewind",
-    "🎮": "lucide:gamepad-2",
-    "🕹️": "mdi:controller-classic",
-
-    // Navigation & location
-    "🌐": "lucide:globe",
-    "🌍": "lucide:globe",
-    "🌎": "lucide:globe",
-    "🌏": "lucide:globe",
-    "🏠": "lucide:home",
-    "🏡": "lucide:home",
-    "🏢": "lucide:building-2",
-    "🏬": "lucide:building",
-    "🏣": "lucide:building",
-    "🏤": "lucide:building",
-    "🏥": "mdi:hospital-building",
-    "🏦": "mdi:bank",
-    "📍": "lucide:map-pin",
-    "🗺️": "lucide:map",
-    "🧭": "mdi:compass",
-    "🚩": "lucide:flag",
-    "🏁": "mdi:flag-checkered",
-    "🎌": "lucide:flag",
-
-    // Users & social
-    "👤": "lucide:user",
-    "👥": "lucide:users",
-    "👨‍💼": "lucide:user",
-    "👩‍💼": "lucide:user",
-    "👨‍💻": "lucide:user",
-    "👩‍💻": "lucide:user",
-    "🧑‍💻": "lucide:user",
-    "👨‍🔧": "lucide:user",
-    "👩‍🔧": "lucide:user",
-    "👨‍🎨": "lucide:user",
-    "👩‍🎨": "lucide:user",
-    "🤝": "mdi:handshake",
-    "👋": "mdi:hand-wave",
-
-    // Commerce & finance
-    "💳": "lucide:credit-card",
-    "💵": "lucide:banknote",
-    "💴": "lucide:banknote",
-    "💶": "lucide:banknote",
-    "💷": "lucide:banknote",
-    "💰": "lucide:coins",
-    "💸": "lucide:coins",
-    "🛒": "lucide:shopping-cart",
-    "🛍️": "lucide:shopping-bag",
-    "🏪": "mdi:store",
-    "🧾": "mdi:receipt",
-    "💹": "lucide:trending-up",
-    "💲": "mdi:currency-usd",
-
-    // Time & scheduling
-    "⏳": "lucide:hourglass",
-    "⌛": "lucide:hourglass",
-    "⏰": "mdi:alarm",
-    "⏱️": "lucide:timer",
-    "⏲️": "lucide:timer",
-    "🕐": "lucide:clock",
-    "🕑": "lucide:clock",
-    "🕒": "lucide:clock",
-    "🕓": "lucide:clock",
-    "🕔": "lucide:clock",
-    "🕕": "lucide:clock",
-    "🕖": "lucide:clock",
-    "🕗": "lucide:clock",
-    "🕘": "lucide:clock",
-    "🕙": "lucide:clock",
-    "🕚": "lucide:clock",
-    "🕛": "lucide:clock",
-
-    // Weather & nature
-    "☀️": "lucide:sun",
-    "🌞": "lucide:sun",
-    "🌙": "lucide:moon",
-    "🌛": "lucide:moon",
-    "🌜": "lucide:moon",
-    "⭐": "lucide:star",
-    "🌟": "lucide:star",
-    "💫": "lucide:sparkles",
-    "☁️": "lucide:cloud",
-    "🌧️": "lucide:cloud-rain",
-    "⛈️": "lucide:cloud-lightning",
-    "🌩️": "lucide:cloud-lightning",
-    "🌨️": "lucide:cloud-snow",
-    "❄️": "lucide:snowflake",
-    "🌊": "lucide:waves",
-    "💧": "lucide:droplet",
-    "💦": "lucide:droplets",
-    "🌱": "lucide:sprout",
-    "🌿": "lucide:leaf",
-    "🍀": "mdi:clover",
-    "🍃": "lucide:leaf",
-    "🌲": "mdi:pine-tree",
-    "🌳": "mdi:tree",
-    "🪴": "mdi:flower",
-    "🌸": "mdi:flower",
-    "🌺": "mdi:flower",
-    "🌻": "mdi:flower",
-    "🌼": "mdi:flower",
-
-    // Food (common ones)
-    "☕": "lucide:coffee",
-    "🍵": "lucide:cup-soda",
-    "🍷": "mdi:glass-wine",
-    "🍺": "mdi:beer",
-    "🍕": "mdi:pizza",
-    "🍔": "mdi:hamburger",
-    "🍎": "lucide:apple",
-    "🍏": "lucide:apple",
-    "🎂": "lucide:cake",
-    "🍰": "lucide:cake-slice",
-    "🍩": "mdi:food-donut",
-    "🧁": "lucide:cake",
-
-    // Actions & misc
-    "🔄": "lucide:refresh-cw",
-    "🔃": "lucide:refresh-cw",
-    "🔀": "lucide:shuffle",
-    "🔁": "lucide:repeat",
-    "🔂": "lucide:repeat-1",
-    "↩️": "lucide:undo",
-    "↪️": "lucide:redo",
-    "📤": "lucide:upload",
-    "📥": "lucide:download",
-    "🔍": "lucide:search",
-    "🔎": "lucide:search",
-    "🔗": "lucide:link",
-    "⛓️": "lucide:link",
-    "➕": "lucide:plus",
-    "➖": "lucide:minus",
-    "✖️": "lucide:x",
-    "➗": "lucide:divide",
-    "➡️": "lucide:arrow-right",
-    "⬅️": "lucide:arrow-left",
-    "⬆️": "lucide:arrow-up",
-    "⬇️": "lucide:arrow-down",
-    "↗️": "lucide:arrow-up-right",
-    "↘️": "lucide:arrow-down-right",
-    "↙️": "lucide:arrow-down-left",
-    "↖️": "lucide:arrow-up-left",
-    "→": "lucide:arrow-right",
-    "←": "lucide:arrow-left",
-    "↑": "lucide:arrow-up",
-    "↓": "lucide:arrow-down",
-    "🔙": "lucide:arrow-left",
-    "🔚": "lucide:arrow-right",
-    "🔛": "lucide:toggle-right",
-    "🔜": "lucide:arrow-right",
-    "🔝": "lucide:arrow-up",
-
-    // Hearts & love
-    "❤️": "lucide:heart",
-    "🧡": "lucide:heart",
-    "💛": "lucide:heart",
-    "💚": "lucide:heart",
-    "💙": "lucide:heart",
-    "💜": "lucide:heart",
-    "🖤": "lucide:heart",
-    "🤍": "lucide:heart",
-    "🤎": "lucide:heart",
-    "💔": "lucide:heart-crack",
-    "❤️‍🔥": "lucide:heart",
-    "💖": "lucide:heart",
-    "💗": "lucide:heart",
-    "💓": "lucide:heart-pulse",
-    "💕": "mdi:heart-multiple",
-    "💞": "lucide:heart",
-    "💝": "lucide:gift",
-    "👍": "lucide:thumbs-up",
-    "👎": "lucide:thumbs-down",
-
-    // Accessibility
-    "♿": "lucide:accessibility",
-
-    // Symbols
-    "💀": "lucide:skull",
-    "☠️": "lucide:skull",
-    "⚰️": "lucide:box",
-    "🎗️": "mdi:ribbon",
-    "🎀": "mdi:ribbon",
-    "🎁": "lucide:gift",
-    "🧲": "lucide:magnet",
-    "🔮": "lucide:circle",
-    "🧿": "lucide:eye",
-    "🪬": "lucide:eye",
-    "💊": "mdi:pill",
-    "💉": "mdi:needle",
-    "🩺": "mdi:stethoscope",
-    "🩹": "mdi:bandage",
-    "🏋️": "lucide:dumbbell",
-    "🏋️‍♂️": "lucide:dumbbell",
-    "🏋️‍♀️": "lucide:dumbbell",
-    "⚖️": "lucide:scale",
-    "🔨": "mdi:hammer",
-    "⚒️": "mdi:pickaxe",
-    "⛏️": "mdi:pickaxe",
-    "🪓": "mdi:axe",
-    "🔪": "lucide:scissors",
-    "✂️": "lucide:scissors",
-    "🪝": "mdi:hook",
-    "⚓": "lucide:anchor",
-    "🧲": "mdi:magnet",
-    "🔋": "lucide:battery-full",
-    "🪫": "lucide:battery-low",
-    "🔌": "mdi:power-plug",
-    "💡": "lucide:lightbulb",
-    "🔦": "mdi:flashlight",
-    "🕯️": "lucide:flame",
-    "🪔": "lucide:flame",
-    "🧯": "mdi:fire-extinguisher",
-    "🛢️": "mdi:barrel",
-    "💺": "mdi:seat",
-    "🪑": "mdi:chair-rolling",
-    "🛏️": "mdi:bed",
-    "🛋️": "mdi:sofa",
-    "🚿": "mdi:shower-head",
-    "🛁": "mdi:bathtub",
-    "🚽": "mdi:toilet",
-    "🧹": "lucide:brush",
-    "🧺": "mdi:basket",
-    "🧻": "lucide:scroll",
-    "🪣": "mdi:bucket",
-    "🧼": "lucide:droplet",
-    "🫧": "lucide:droplets",
-    "🪥": "lucide:brush",
-    "🧴": "mdi:bottle-tonic",
-    "🧷": "lucide:pin",
-    "🧵": "mdi:needle",
-    "🧶": "mdi:knitting",
-    "🪡": "mdi:needle",
-    "👓": "lucide:glasses",
-    "🕶️": "lucide:glasses",
-    "🥽": "lucide:glasses",
-    "🎒": "mdi:bag-personal",
-    "👜": "lucide:briefcase",
-    "👝": "lucide:wallet",
-    "👛": "lucide:wallet",
-    "💼": "lucide:briefcase",
-    "🧳": "mdi:bag-suitcase",
-    "🎓": "mdi:school",
-    "🪖": "mdi:hard-hat",
-    "⛑️": "mdi:hard-hat",
-    "👑": "mdi:crown",
-    "🎪": "mdi:tent",
-    "⛺": "mdi:tent",
-    "🏕️": "mdi:tent",
-    "🎠": "mdi:ferris-wheel",
-    "🎡": "mdi:ferris-wheel",
-    "🎢": "mdi:roller-coaster",
-
-    // Transport
-    "🚗": "lucide:car",
-    "🚕": "lucide:car-taxi-front",
-    "🚙": "lucide:car",
-    "🚌": "lucide:bus",
-    "🚎": "lucide:bus",
-    "🚐": "lucide:bus",
-    "🚑": "mdi:ambulance",
-    "🚒": "lucide:truck",
-    "🚚": "lucide:truck",
-    "🚛": "lucide:truck",
-    "🚜": "mdi:tractor",
-    "🏎️": "lucide:car",
-    "🏍️": "lucide:bike",
-    "🛵": "lucide:bike",
-    "🚲": "lucide:bike",
-    "🛴": "lucide:bike",
-    "🛹": "mdi:skateboard",
-    "✈️": "lucide:plane",
-    "🛫": "lucide:plane-takeoff",
-    "🛬": "lucide:plane-landing",
-    "🚁": "mdi:helicopter",
-    "🚀": "lucide:rocket",
-    "🛸": "lucide:rocket",
-    "🚢": "lucide:ship",
-    "⛵": "lucide:sailboat",
-    "🛥️": "lucide:ship",
-    "🚤": "lucide:ship",
-    "🚂": "lucide:train",
-    "🚃": "lucide:train",
-    "🚄": "lucide:train-front",
-    "🚅": "lucide:train-front",
-    "🚆": "lucide:train",
-    "🚇": "lucide:train",
-    "🚈": "lucide:train",
-    "🚉": "lucide:train",
-    "🚊": "lucide:tram-front",
-    "🚝": "lucide:train",
-    "🚞": "mdi:train",
-    "🚟": "lucide:cable-car",
-    "🚠": "lucide:cable-car",
-    "🚡": "lucide:cable-car",
-
-    // Animals (common ones used metaphorically)
-    "🐝": "mdi:bee",
-    "🐞": "mdi:ladybug",
-    "🦋": "mdi:butterfly",
-    "🐛": "lucide:bug",
-    "🐜": "mdi:ant",
-    "🦗": "mdi:cricket",
-    "🦟": "mdi:mosquito",
-    "🕷️": "mdi:spider",
-    "🦂": "mdi:scorpion",
-    "🐌": "mdi:snail",
-    "🐢": "mdi:turtle",
-    "🐇": "lucide:rabbit",
-    "🦊": "mdi:fox",
-    "🐱": "lucide:cat",
-    "🐶": "mdi:dog",
-    "🐻": "mdi:teddy-bear",
-    "🐼": "mdi:panda",
-    "🦁": "mdi:lion",
-    "🐯": "mdi:cat",
-    "🐮": "mdi:cow",
-    "🐷": "mdi:pig",
-    "🐸": "mdi:frog",
-    "🐙": "mdi:octopus",
-    "🦑": "mdi:squid",
-    "🦐": "mdi:shrimp",
-    "🦀": "mdi:crab",
-    "🐟": "lucide:fish",
-    "🐠": "lucide:fish",
-    "🐡": "lucide:fish",
-    "🦈": "mdi:shark",
-    "🐳": "mdi:whale",
-    "🐋": "mdi:whale",
-    "🐬": "mdi:dolphin",
-    "🐦": "lucide:bird",
-    "🐧": "mdi:penguin",
-    "🦅": "mdi:bird",
-    "🦆": "mdi:duck",
-    "🦉": "mdi:owl",
-    "🦇": "mdi:bat",
-    "🐴": "mdi:horse",
-    "🦄": "mdi:unicorn",
-    "🐺": "mdi:wolf",
-    "🐗": "mdi:pig",
-    "🐘": "mdi:elephant",
-    "🦏": "mdi:rhino",
-    "🦛": "mdi:hippo",
-    "🐪": "mdi:camel",
-    "🐫": "mdi:camel",
-    "🦒": "mdi:giraffe",
-    "🦘": "mdi:kangaroo",
-    "🐒": "mdi:monkey",
-    "🦍": "mdi:gorilla",
-    "🦧": "mdi:orangutan",
-    "🐕": "mdi:dog",
-    "🐩": "mdi:dog",
-    "🐈": "lucide:cat",
-    "🐓": "mdi:rooster",
-    "🦃": "mdi:turkey",
-    "🦚": "mdi:peacock",
-    "🦜": "mdi:parrot",
-    "🦢": "mdi:bird",
-    "🦩": "mdi:flamingo",
-    "🕊️": "mdi:dove",
-    "🐁": "mdi:rodent",
-    "🐀": "mdi:rodent",
-    "🐿️": "mdi:squirrel",
-    "🦔": "mdi:hedgehog",
-  };
-
   function render_markdown(text: string): string {
-    // Replace overly enthusiastic/apologetic phrases with neutral tone
+    // Replace annoying phrases with neutral tone
     let processed = text;
     processed = processed.replace(
       /You're absolutely right!?/gi,
@@ -713,7 +87,7 @@
   );
 
   type AgentPanelProps = {
-    messages: Message[];
+    messages: AgentMessage[];
     is_processing: boolean;
     is_loading_messages: boolean;
     vibe_zone_enabled: boolean;
@@ -722,20 +96,16 @@
     preview_errors: PreviewError[];
     pending_prompt: PendingPrompt | null;
     on_navigate_to_field: (tab: string, field_name?: string) => void;
-    on_config_subtab_change: (subtab: "env" | "endpoints") => void;
     on_file_select: (path: string) => void;
     on_load_data_files: () => Promise<void>;
     on_load_config: () => Promise<void>;
-    on_refresh_preview: () => void;
-    on_vibe_lounge_toggle: () => void;
-    on_vibe_dismiss: () => void;
     on_pending_prompt_consumed: () => void;
-    on_code_written: (content: string) => void;
+    on_loading_change?: (loading: boolean) => void;
   };
 
   let {
     messages = $bindable(),
-    is_processing = $bindable(),
+    is_processing,
     is_loading_messages,
     vibe_zone_enabled,
     vibe_zone_visible = $bindable(),
@@ -743,15 +113,11 @@
     preview_errors = $bindable(),
     pending_prompt = null,
     on_navigate_to_field,
-    on_config_subtab_change,
     on_file_select,
     on_load_data_files,
     on_load_config,
-    on_refresh_preview,
-    on_vibe_lounge_toggle,
-    on_vibe_dismiss,
     on_pending_prompt_consumed,
-    on_code_written,
+    on_loading_change,
   }: AgentPanelProps = $props();
 
   let agent_input = $state("");
@@ -759,36 +125,26 @@
   let input_element: HTMLTextAreaElement;
   let llm_configured = $state<boolean | null>(null); // null = loading, true/false = checked
 
+  // Local sending state - triggers immediately on send, before realtime updates
+  let is_sending = $state(false);
+  // Combined loading state for UI - shows bar immediately
+  let show_loading = $derived(is_sending || is_processing);
+
   // localStorage key for persisting draft input
   const draft_key = `tinykit:agent-draft:${project_id}`;
   let auto_scroll = $state(true);
-  let user_scrolled_up = $state(false); // Sticky flag: user manually scrolled up during streaming
-  let tool_in_progress = $state<string | null>(null);
-  let previous_message_length = $state(0);
   let user_dismissed_vibe = $state(false);
   let current_usage = $state<TokenUsage | null>(null);
-  let last_chunk_time = $state<number>(Date.now());
-  let show_processing_indicator = $state(false);
-
-  // Show "Processing..." indicator after 6 seconds of no activity during processing
-  $effect(() => {
-    if (!is_processing) {
-      show_processing_indicator = false;
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const seconds_since_last_chunk = (Date.now() - last_chunk_time) / 1000;
-      show_processing_indicator = seconds_since_last_chunk > 6;
-    }, 500); // Check every 500ms
-
-    return () => clearInterval(interval);
-  });
 
   // Sync vibe zone visibility to parent (for rendering over preview)
   $effect(() => {
     vibe_zone_visible =
       vibe_zone_enabled && is_processing && !user_dismissed_vibe;
+  });
+
+  // Notify parent of loading state changes (for preview indicator)
+  $effect(() => {
+    on_loading_change?.(show_loading);
   });
 
   // Handle dismiss from parent (when user closes vibe zone)
@@ -869,10 +225,9 @@
   }
 
   function scroll_to_bottom() {
-    // Don't scroll if user has manually scrolled up during this streaming session
-    if (message_container && auto_scroll && !user_scrolled_up) {
+    if (message_container && auto_scroll) {
       setTimeout(() => {
-        if (message_container && !user_scrolled_up) {
+        if (message_container) {
           message_container.scrollTop = message_container.scrollHeight;
         }
       }, 100);
@@ -887,21 +242,11 @@
     const scroll_height = message_container.scrollHeight;
     const client_height = message_container.clientHeight;
 
-    const is_at_bottom = scroll_height - scroll_top - client_height < threshold;
-    auto_scroll = is_at_bottom;
-
-    // If user scrolls up during streaming, set sticky flag
-    if (!is_at_bottom && is_processing) {
-      user_scrolled_up = true;
-    }
-    // If user scrolls back to bottom, clear the flag
-    if (is_at_bottom) {
-      user_scrolled_up = false;
-    }
+    auto_scroll = scroll_height - scroll_top - client_height < threshold;
   }
 
   async function send_message() {
-    if (!agent_input.trim() || is_processing) return;
+    if (!agent_input.trim() || is_processing || is_sending) return;
 
     const display_prompt = agent_input.trim();
     // Use full prompt if available (e.g., fix error with hidden instructions), otherwise use display
@@ -910,19 +255,20 @@
 
     vibe_user_prompt = display_prompt;
     agent_input = "";
-    is_processing = true;
     user_dismissed_vibe = false;
-    user_scrolled_up = false; // Reset scroll flag for new message
     current_usage = null;
-    last_chunk_time = Date.now();
-    show_processing_indicator = false;
+
+    // Start local loading immediately (before realtime updates)
+    is_sending = true;
+
     // Reset textarea height
     if (input_element) {
       input_element.style.height = "auto";
     }
 
-    // Show display version to user
-    messages = [...messages, { role: "user", content: display_prompt }];
+    // Note: We don't add the user message optimistically here
+    // The server adds it to agent_chat and realtime syncs it back
+    // This prevents duplicate messages
     scroll_to_bottom();
 
     try {
@@ -942,7 +288,9 @@
         console.error("Failed to fetch spec:", err);
       }
 
-      // Send full prompt to API (may include hidden instructions)
+      // Fire-and-forget: send prompt to server
+      // Server will run agent in background and stream updates to DB
+      // Client receives updates via Pocketbase realtime subscription
       const response = await send_prompt(
         project_id,
         [
@@ -952,187 +300,26 @@
         spec,
       );
 
-      if (!response.ok) {
-        const error_data = await response
-          .json()
-          .catch(() => ({ error: "Unknown error" }));
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
         throw new Error(
-          error_data.error ||
-            `Failed to get response from agent (${response.status})`,
+          data.error || `Failed to start agent (${response.status})`,
         );
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      // Server returns { started: true, status: 'running' }
+      // Updates will come through realtime subscription
+      console.log("[Agent] Started:", data);
 
-      let assistant_message = {
-        role: "assistant" as const,
-        content: "",
-        stream_items: [],
-      };
-      let raw_content = "";
-      let stream_items: Array<{
-        type: "text" | "tool";
-        content?: string;
-        name?: string;
-        args?: Record<string, any>;
-        result?: string;
-      }> = [];
-      messages = [...messages, assistant_message];
-      previous_message_length = 0;
-
-      // Track tool results during streaming
-      type ToolResult = { name: string; result: string };
-      let accumulated_tool_results: ToolResult[] = [];
-
-      if (reader) {
-        let sse_buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          // Accumulate chunks in buffer (use stream: true for multi-byte chars)
-          sse_buffer += decoder.decode(value, { stream: true });
-
-          // Split by SSE message delimiter
-          const parts = sse_buffer.split("\n\n");
-          // Keep last part in buffer (may be incomplete)
-          sse_buffer = parts.pop() || "";
-
-          for (const line of parts) {
-            if (line.startsWith("data: ")) {
-              let data;
-              try {
-                data = JSON.parse(line.slice(6));
-              } catch (parse_error) {
-                console.error("[SSE Parse Error]", parse_error, "Line:", line);
-                continue; // Skip malformed messages
-              }
-              console.log("[Agent Stream]", data);
-
-              // Handle stream errors
-              if (data.error) {
-                throw new Error(data.error);
-              }
-
-              if (data.chunk) {
-                raw_content += data.chunk;
-                messages[messages.length - 1].content = raw_content;
-
-                // Add text to stream_items (append to last text item if exists, else create new)
-                const last_item = stream_items[stream_items.length - 1];
-                if (last_item && last_item.type === "text") {
-                  last_item.content += data.chunk;
-                } else {
-                  stream_items.push({ type: "text", content: data.chunk });
-                }
-                messages[messages.length - 1].stream_items = [...stream_items];
-
-                previous_message_length = raw_content.length;
-                messages = messages;
-                last_chunk_time = Date.now(); // Track activity
-                scroll_to_bottom();
-              }
-
-              // Handle tool call streaming start (shows loading immediately)
-              if (data.toolCallStart) {
-                tool_in_progress = data.toolCallStart.name;
-              }
-
-              // Handle tool call complete (has full args)
-              if (data.incremental && data.toolCall && !data.toolResult) {
-                tool_in_progress = data.toolCall.name;
-              }
-
-              // Handle incremental tool results (during streaming)
-              if (data.incremental && data.toolResult) {
-                const tool_name = data.toolCall?.name || "unknown";
-                const tool_args = data.toolCall?.parameters;
-                accumulated_tool_results.push({
-                  name: tool_name,
-                  result: data.toolResult,
-                });
-
-                // Add tool to stream_items in order (when result arrives)
-                stream_items.push({
-                  type: "tool",
-                  name: tool_name,
-                  args: tool_args,
-                  result: data.toolResult,
-                });
-
-                // Tool completed, clear in-progress state
-                tool_in_progress = null;
-
-                // Immediately update message with tool_calls so buttons appear right away
-                if (
-                  messages.length > 0 &&
-                  messages[messages.length - 1].role === "assistant"
-                ) {
-                  messages[messages.length - 1].stream_items = [
-                    ...stream_items,
-                  ];
-                  messages[messages.length - 1].tool_calls =
-                    accumulated_tool_results.map((tr) => ({
-                      name: tr.name,
-                      result: tr.result,
-                    }));
-                  messages = messages; // Trigger reactivity
-                }
-
-                // Check if content/design/data was created - notify Preview to update
-                const config_tools = [
-                  "create_content_field",
-                  "create_design_field",
-                  "create_data_file",
-                  "insert_records",
-                ];
-                if (config_tools.includes(tool_name)) {
-                  await on_load_data_files();
-                  window.dispatchEvent(
-                    new CustomEvent("tinykit:config-updated"),
-                  );
-                }
-
-                // Check if write_code tool was called - update preview with new content
-                if (tool_name === "write_code") {
-                  const code = data.toolCall?.parameters?.code;
-                  if (code) {
-                    on_code_written(code);
-                  }
-                  on_refresh_preview();
-                }
-              }
-
-              // Handle completion with usage data
-              if (data.done && data.usage) {
-                current_usage = data.usage;
-                // Attach usage and tool_calls to the last assistant message
-                if (
-                  messages.length > 0 &&
-                  messages[messages.length - 1].role === "assistant"
-                ) {
-                  messages[messages.length - 1].usage = data.usage;
-                  // Convert accumulated_tool_results to tool_calls format
-                  if (accumulated_tool_results.length > 0) {
-                    messages[messages.length - 1].tool_calls =
-                      accumulated_tool_results.map((tr) => ({
-                        name: tr.name,
-                        result: tr.result,
-                      }));
-                  }
-                  messages = messages;
-                }
-              }
-            }
-          }
-        }
-      }
+      // Realtime will take over - is_sending will be reset by the effect below
     } catch (error) {
       console.error("Failed to send message:", error);
       const error_message =
         error instanceof Error ? error.message : String(error);
+      // Reset local sending state on error
+      is_sending = false;
+      // Show error in chat
       messages = [
         ...messages,
         {
@@ -1140,11 +327,32 @@
           content: `Error: ${error_message}`,
         },
       ];
-    } finally {
-      is_processing = false;
-      tool_in_progress = null;
     }
   }
+
+  // Reset local sending state when realtime takes over (is_processing becomes true)
+  $effect(() => {
+    if (is_processing) {
+      // Realtime confirmed agent is running - local state no longer needed
+      is_sending = false;
+    }
+  });
+
+  // Safety timeout: reset is_sending if realtime never fires (e.g., network issue)
+  let sending_timeout: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    if (is_sending) {
+      sending_timeout = setTimeout(() => {
+        if (is_sending && !is_processing) {
+          console.warn("[Agent] Sending timeout - realtime may not be working");
+          is_sending = false;
+        }
+      }, 30000); // 30 second timeout
+    } else if (sending_timeout) {
+      clearTimeout(sending_timeout);
+      sending_timeout = null;
+    }
+  });
 
   async function clear_messages() {
     if (confirm("Clear all messages?")) {
@@ -1238,150 +446,127 @@
         {/if}
       </div>
     {:else}
-      {#each messages as message, idx}
-        <div
-          in:fade
-          class="relative space-y-1 {bubble_bg} p-4 rounded-sm {message.role ===
-          'user'
-            ? 'border-l-2 border-l-[var(--builder-accent)]'
-            : ''}"
-        >
-          <div class="text-[var(--builder-text-secondary)] text-xs">
-            {message.role === "user" ? "You" : "Agent"}
-          </div>
-          <div class="text-[var(--builder-text-primary)]">
-            {#if message.role === "user"}
-              <div class={prose_classes}>
-                {@html render_markdown(message.content)}
-              </div>
-            {:else}
-              {@const is_streaming =
-                idx === messages.length - 1 && is_processing}
-
-              {#if message.stream_items && message.stream_items.length > 0}
-                <!-- Render items in stream order -->
-                {#each message.stream_items as item, item_idx}
-                  {#if item.type === "text"}
-                    <div class={prose_classes}>
-                      {@html render_markdown(item.content || "")}
-                    </div>
-                  {:else if item.type === "tool"}
-                    {@const tool_name = item.name || "unknown"}
-                    {@const field_name = extract_field_name(
-                      tool_name,
-                      item.result || "",
-                    )}
-                    <div class="tool-button-container">
-                      {#if tool_name === "update_spec"}
-                        <!-- Spec updates are silent - no UI shown -->
-                      {:else if tool_name === "create_content_field"}
-                        <button
-                          onclick={() => {
-                            on_load_config();
-                            on_navigate_to_field(
-                              "content",
-                              field_name || undefined,
-                            );
-                          }}
-                          class="tool-button tool-button--content tool-button--interactive"
-                        >
-                          <FileText class="w-3 h-3" />
-                          <span>{field_name || "Content"}</span>
-                        </button>
-                      {:else if tool_name === "create_design_field"}
-                        <button
-                          onclick={() => {
-                            on_load_config();
-                            on_navigate_to_field(
-                              "design",
-                              field_name || undefined,
-                            );
-                          }}
-                          class="tool-button tool-button--design tool-button--interactive"
-                        >
-                          <Palette class="w-3 h-3" />
-                          <span>{field_name || "Design"}</span>
-                        </button>
-                      {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
-                        <button
-                          onclick={() => {
-                            on_navigate_to_field(
-                              "data",
-                              field_name || undefined,
-                            );
-                            on_load_data_files();
-                          }}
-                          class="tool-button tool-button--data tool-button--interactive"
-                        >
-                          <Database class="w-3 h-3" />
-                          <span>{field_name || "Data"}</span>
-                        </button>
-                      {:else if tool_name === "write_code"}
-                        <button
-                          onclick={() => {
-                            on_navigate_to_field("code");
-                          }}
-                          class="tool-button tool-button--code tool-button--interactive"
-                        >
-                          <Code class="w-3 h-3" />
-                          <span>Code</span>
-                        </button>
-                      {:else}
-                        <div in:fade class="tool-button tool-button--success">
-                          <iconify-icon icon="lucide:check" class="w-3 h-3"
-                          ></iconify-icon>
-                          <span>{tool_name}</span>
-                        </div>
-                      {/if}
-                    </div>
-                  {/if}
-                {/each}
-              {:else}
-                <!-- Fallback for old messages without stream_items -->
+      {#each messages as message}
+        {console.log({ message })}
+        {#if message.content || (message.stream_items && message.stream_items.length > 0)}
+          <div
+            in:fade={{ duration: 200 }}
+            class="relative space-y-1 {bubble_bg} p-4 rounded-sm {message.role ===
+            'user'
+              ? 'border-l-2 border-l-[var(--builder-accent)]'
+              : ''}"
+          >
+            <div class="text-[var(--builder-text-secondary)] text-xs">
+              {message.role === "user" ? "You" : "Agent"}
+            </div>
+            <div class="text-[var(--builder-text-primary)]">
+              {#if message.role === "user"}
                 <div class={prose_classes}>
                   {@html render_markdown(message.content)}
                 </div>
-              {/if}
+              {:else}
+                {#if message.stream_items && message.stream_items.length > 0}
+                  <!-- Render items in stream order -->
+                  {#each message.stream_items as item}
+                    {@const is_tool = item.type === "tool"}
+                    <div in:fade class:tool-button-container={is_tool}>
+                      {#if item.type === "text"}
+                        <div class={prose_classes}>
+                          {@html render_markdown(item.content || "")}
+                        </div>
+                      {:else if is_tool}
+                        {@const tool_name = item.name || "unknown"}
+                        {@const field_name = extract_field_name(
+                          tool_name,
+                          item.result || "",
+                        )}
+                        {#if tool_name === "update_spec"}
+                          <!-- Spec updates are silent - no UI shown -->
+                        {:else if tool_name === "create_content_field"}
+                          <button
+                            onclick={() => {
+                              on_load_config();
+                              on_navigate_to_field(
+                                "content",
+                                field_name || undefined,
+                              );
+                            }}
+                            class="tool-button tool-button--content tool-button--interactive"
+                          >
+                            <FileText class="w-3 h-3" />
+                            <span>{field_name || "Content"}</span>
+                          </button>
+                        {:else if tool_name === "create_design_field"}
+                          <button
+                            onclick={() => {
+                              on_load_config();
+                              on_navigate_to_field(
+                                "design",
+                                field_name || undefined,
+                              );
+                            }}
+                            class="tool-button tool-button--design tool-button--interactive"
+                          >
+                            <Palette class="w-3 h-3" />
+                            <span>{field_name || "Design"}</span>
+                          </button>
+                        {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
+                          <button
+                            onclick={() => {
+                              on_navigate_to_field(
+                                "data",
+                                field_name || undefined,
+                              );
+                              on_load_data_files();
+                            }}
+                            class="tool-button tool-button--data tool-button--interactive"
+                          >
+                            <Database class="w-3 h-3" />
+                            <span>{field_name || "Data"}</span>
+                          </button>
+                        {:else if tool_name === "write_code"}
+                          <button
+                            onclick={() => {
+                              // Reload code file and navigate to code tab
+                              on_file_select(`${project_id}/src/App.svelte`);
+                              on_navigate_to_field("code");
+                            }}
+                            class="tool-button tool-button--code tool-button--interactive"
+                          >
+                            <Code class="w-3 h-3" />
+                            <span>Code</span>
+                          </button>
+                        {:else}
+                          <div in:fade class="tool-button tool-button--success">
+                            <iconify-icon icon="lucide:check" class="w-3 h-3"
+                            ></iconify-icon>
+                            <span>{tool_name}</span>
+                          </div>
+                        {/if}
+                      {/if}
+                    </div>
+                  {/each}
+                {:else}
+                  <!-- Fallback for old messages without stream_items -->
+                  <div class={prose_classes}>
+                    {@html render_markdown(message.content)}
+                  </div>
+                {/if}
 
-              <!-- Show code loading during lull (likely generating code) -->
-              {#if is_streaming && show_processing_indicator && message.stream_items}
-                {@const has_text = message.stream_items.some(
-                  (item) => item.type === "text",
-                )}
-                {@const has_code = message.stream_items.some(
-                  (item) => item.type === "tool" && item.name === "write_code",
-                )}
-                {#if has_text && !has_code}
-                  <div class="tool-button-container">
-                    <button
-                      onclick={() => {
-                        on_navigate_to_field("code");
-                      }}
-                      class="tool-button tool-button--code tool-button--interactive"
-                    >
-                      <Spinner size="sm" />
-                      <span>Code</span>
-                    </button>
+                <!-- Token usage display for assistant messages -->
+                {#if message.usage}
+                  <div class="absolute bottom-2 right-3">
+                    <TokenCost usage={message.usage} />
                   </div>
                 {/if}
               {/if}
-              <!-- Token usage display for assistant messages -->
-              {#if message.usage && !is_streaming}
-                <div class="absolute bottom-2 right-3">
-                  <TokenCost usage={message.usage} />
-                </div>
-              {/if}
-            {/if}
+            </div>
           </div>
-        </div>
+        {/if}
       {/each}
-      {#if is_processing}
+      {#if show_loading}
         <div class="pl-1 text-[var(--builder-text-secondary)]">
-          {#if show_processing_indicator}
-            <span in:fade class="animate-pulse">Processing...</span>
-          {:else}
-            <span in:fade class="animate-pulse">Inferring...</span>
-          {/if}
+          <span in:fade class="animate-pulse">Processing...</span>
         </div>
         <!-- Loading Indicator -->
         <div
@@ -1425,16 +610,16 @@
             ? "AI not configured"
             : "Make a todo list"}
           class="mt-[3px] flex-1 bg-transparent text-[var(--builder-text-primary)] placeholder:text-[var(--builder-text-secondary)] placeholder:opacity-50 focus:outline-none font-sans resize-none overflow-hidden min-h-[1.5rem] max-h-[12rem]"
-          disabled={is_processing || llm_configured === false}
+          disabled={show_loading || llm_configured === false}
           rows="1"
         ></textarea>
         <button
           onclick={send_message}
-          disabled={is_processing ||
+          disabled={show_loading ||
             !agent_input.trim() ||
             llm_configured === false}
           class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors {agent_input.trim() &&
-          !is_processing &&
+          !show_loading &&
           llm_configured !== false
             ? 'bg-[var(--builder-accent)] text-white'
             : 'bg-[var(--builder-bg-tertiary)] text-[var(--builder-text-secondary)]'}"

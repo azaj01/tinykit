@@ -1,10 +1,10 @@
 // Storage helpers for tinykit admin interface
-import type { Message } from "../types"
+import type { AgentMessage } from "../types"
 
 const MESSAGES_KEY = "agent-messages"
 
 // Messages storage
-export function load_messages(): Message[] {
+export function load_messages(): AgentMessage[] {
 	if (typeof window === "undefined") return []
 
 	try {
@@ -18,7 +18,7 @@ export function load_messages(): Message[] {
 	return []
 }
 
-export function save_messages(messages: Message[]): void {
+export function save_messages(messages: AgentMessage[]): void {
 	if (typeof window === "undefined") return
 	localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages))
 }

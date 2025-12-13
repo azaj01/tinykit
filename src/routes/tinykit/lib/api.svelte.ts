@@ -5,7 +5,7 @@ import { pb } from '$lib/pocketbase.svelte'
 import { project_service } from '$lib/services/project.svelte'
 import type {
 	Project,
-	Message,
+	AgentMessage,
 	FileTreeItem,
 	ApiEndpoint,
 	ContentField,
@@ -113,7 +113,7 @@ export async function write_code(project_id: string, content: string): Promise<v
 // This just manages the chat history storage
 export async function send_prompt(
 	project_id: string,
-	messages: Message[],
+	messages: AgentMessage[],
 	spec_content?: string
 ): Promise<Response> {
 	// The agent endpoint still needs to be server-side for LLM API keys
@@ -132,12 +132,12 @@ export async function send_prompt(
 	})
 }
 
-export async function load_messages(project_id: string): Promise<Message[]> {
+export async function load_messages(project_id: string): Promise<AgentMessage[]> {
 	const project = await get_project(project_id)
 	return project.agent_chat || []
 }
 
-export async function save_messages(project_id: string, messages: Message[]): Promise<void> {
+export async function save_messages(project_id: string, messages: AgentMessage[]): Promise<void> {
 	await update_project(project_id, { agent_chat: messages })
 }
 

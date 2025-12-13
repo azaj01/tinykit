@@ -30,7 +30,7 @@
 	// Import types and utilities
 	import type {
 		TabId,
-		Message,
+		AgentMessage,
 		ConfigSubTab,
 		ApiEndpoint,
 		ContentField,
@@ -46,6 +46,7 @@
 	import * as storage from "../lib/storage";
 	import { get_saved_theme, apply_builder_theme } from "$lib/builder_themes";
 	import { setProjectContext } from "../context";
+	import { pb } from "$lib/pocketbase.svelte";
 
 	// Get project_id from server load
 	let { data } = $props();
@@ -136,10 +137,20 @@
 	let agent_panel: AgentPanel | undefined = $state();
 
 	// Agent state
-	let messages = $state<Message[]>([]);
-	let is_processing = $state(false);
+	let messages = $state<AgentMessage[]>([]);
+	// Derive processing state from last assistant message's status
+	// This is more reliable than a separate field since it's part of the synced message data
+	let is_processing = $derived.by(() => {
+		const last_msg = messages[messages.length - 1];
+		return last_msg?.role === "assistant" && last_msg?.status === "running";
+	});
 	let is_loading_messages = $state(true);
 	let preview_errors = $state<PreviewError[]>([]);
+	let realtime_unsubscribe: (() => void) | null = null;
+	// Local state for immediate loading feedback (before realtime confirms)
+	let agent_loading = $state(false);
+	// Combined state for preview indicator - shows immediately when sending
+	let agent_working = $derived(agent_loading || is_processing);
 
 	// Code state
 	let current_file = $state("");
@@ -295,27 +306,58 @@
 			try {
 				const project = await api.get_project_details(project_id);
 				messages = project.agent_chat || [];
+				// is_processing is now derived from messages, so no need to set agent_status
 				project_title = project.name || "My Project";
 				project_domain = project.domain || "";
 				project_title_loaded = true;
 
 				// Check if there's an initial prompt that hasn't been processed yet
+				// (single user message with no assistant response)
 				if (
 					messages.length === 1 &&
 					messages[0].role === "user" &&
 					messages[0].content
 				) {
 					const initial_prompt = messages[0].content;
+					// Server will detect the duplicate and not add it again
 					pending_agent_prompt = {
 						display: initial_prompt,
 						full: initial_prompt,
 					};
-					messages = [];
 				}
 
 				// Load vibe zone setting from project settings (defaults to true)
 				vibe_zone_enabled = project.settings?.vibe_zone_enabled ?? true;
 				vibe_zone_loaded = true;
+
+				// Subscribe to realtime updates for agent chat
+				pb.collection("_tk_projects")
+					.subscribe(project_id, (e) => {
+						if (e.action === "update") {
+							// Update messages from realtime
+							const new_messages = e.record.agent_chat || [];
+
+							// Only update if changed (avoid loops)
+							if (
+								JSON.stringify(new_messages) !==
+								JSON.stringify(messages)
+							) {
+								messages = new_messages;
+
+								// Handle side effects for tool results
+								handle_realtime_tool_updates(new_messages);
+							}
+						}
+					})
+					.then((unsub) => {
+						realtime_unsubscribe = unsub;
+					})
+					.catch((err) => {
+						console.warn(
+							"[Studio] Failed to subscribe to realtime:",
+							err,
+						);
+					});
 			} catch (err) {
 				console.error("Failed to load project:", err);
 				messages = [];
@@ -345,8 +387,41 @@
 				handle_fix_error as EventListener,
 			);
 			window.removeEventListener("hashchange", handle_hash_change);
+			realtime_unsubscribe?.();
 		};
 	});
+
+	// Handle side effects when realtime updates arrive (code written, config updated, etc.)
+	function handle_realtime_tool_updates(new_messages: AgentMessage[]) {
+		const last_msg = new_messages[new_messages.length - 1];
+		if (last_msg?.role !== "assistant" || !last_msg.stream_items) return;
+
+		for (const item of last_msg.stream_items) {
+			if (item.type === "tool" && item.result) {
+				const tool_name = item.name;
+
+				// Refresh config/data when those tools complete
+				const config_tools = [
+					"create_content_field",
+					"create_design_field",
+					"create_data_file",
+					"insert_records",
+				];
+				if (config_tools.includes(tool_name || "")) {
+					load_data_files();
+					window.dispatchEvent(
+						new CustomEvent("tinykit:config-updated"),
+					);
+				}
+
+				// Refresh preview when code is written
+				if (tool_name === "write_code" && item.args?.code) {
+					file_content = item.args.code;
+					refresh_preview();
+				}
+			}
+		}
+	}
 
 	function handle_fix_error(e: CustomEvent<{ error: string }>) {
 		const error = e.detail.error;
@@ -396,16 +471,8 @@
 		}
 	});
 
-	// Auto-save messages when they change
-	$effect(() => {
-		if (
-			typeof window !== "undefined" &&
-			!is_loading_messages &&
-			messages.length > 0
-		) {
-			api.save_messages(project_id, messages).catch(console.error);
-		}
-	});
+	// Note: Messages are now saved by the server when agent runs
+	// Clear conversation uses the DELETE endpoint
 
 	// Load config when config tab is opened
 	$effect(() => {
@@ -705,7 +772,7 @@
 			<AgentPanel
 				bind:this={agent_panel}
 				bind:messages
-				bind:is_processing
+				{is_processing}
 				bind:preview_errors
 				bind:vibe_zone_visible
 				bind:vibe_user_prompt
@@ -713,15 +780,11 @@
 				{vibe_zone_enabled}
 				pending_prompt={pending_agent_prompt}
 				on_navigate_to_field={navigate_to_field}
-				on_config_subtab_change={(subtab) => (config_subtab = subtab)}
 				on_file_select={handle_file_select}
 				on_load_data_files={load_data_files}
 				on_load_config={load_config}
-				on_refresh_preview={refresh_preview}
-				on_vibe_lounge_toggle={toggle_vibe_lounge}
-				on_vibe_dismiss={() => agent_panel?.dismiss_vibe()}
 				on_pending_prompt_consumed={() => (pending_agent_prompt = null)}
-				on_code_written={handle_code_written}
+				on_loading_change={(loading) => (agent_loading = loading)}
 			/>
 		{:else if current_tab === "code"}
 			<CodePanel
@@ -780,7 +843,7 @@
 				code={file_content}
 				language={editor_language}
 				{project_id}
-				agent_working={is_processing}
+				{agent_working}
 			/>
 			{#if vibe_zone_visible && !vibe_zone_fullscreen}
 				<VibeZone

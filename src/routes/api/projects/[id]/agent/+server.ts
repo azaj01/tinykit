@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { env } from '$env/dynamic/private'
 import { getProject, updateProject, createSnapshot, getLLMSettings, validateUserToken, unauthorizedResponse, type LLMSettings } from '$lib/server/pb'
-import { create_stream_response, type LLMProvider, type AgentMessage } from '$lib/ai/sdk-agent'
+import { type LLMProvider, type AgentMessage } from '$lib/ai/sdk-agent'
 import { calculateCost } from '$lib/ai/types'
 
 // Env var fallbacks
@@ -10,6 +10,9 @@ const ENV_LLM_PROVIDER = (env.LLM_PROVIDER as LLMProvider) || 'openai'
 const ENV_LLM_API_KEY = env.LLM_API_KEY || ''
 const ENV_LLM_MODEL = env.LLM_MODEL || 'gpt-4o'
 const ENV_LLM_BASE_URL = env.LLM_BASE_URL
+
+// Track running agents to prevent duplicate runs
+const runningAgents = new Map<string, boolean>()
 
 // Get LLM config from DB or fall back to env vars
 async function getLLMConfig() {
@@ -105,10 +108,12 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 	}
 }
 
-// POST - Send prompt to agent
+// POST - Send prompt to agent (fire-and-forget, streams to database)
 export const POST: RequestHandler = async ({ params, request, getClientAddress }) => {
 	const user = await validateUserToken(request)
 	if (!user) return unauthorizedResponse('Authentication required')
+
+	const projectId = params.id
 
 	try {
 		const { prompt, messages, spec } = await request.json()
@@ -124,6 +129,11 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
 			return json({ error: 'Prompt is required' }, { status: 400 })
 		}
 
+		// Check if agent is already running for this project
+		if (runningAgents.get(projectId)) {
+			return json({ error: 'Agent is already processing a request' }, { status: 409 })
+		}
+
 		// Rate limit check
 		const clientIp = getClientAddress()
 		const rateCheck = checkRateLimit(clientIp)
@@ -135,7 +145,7 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
 		}
 
 		// Get project and LLM config
-		const project = await getProject(params.id)
+		const project = await getProject(projectId)
 		if (!project) {
 			return json({ error: 'Project not found' }, { status: 404 })
 		}
@@ -145,121 +155,194 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
 			return json({ error: 'AI not configured. Add your API key in Settings.' }, { status: 500 })
 		}
 
-		// Build conversation history
+		// Build conversation history (should include initial user message)
 		const agentMessages = project.agent_chat || []
+
+		// Add placeholder assistant message (will be updated as chunks arrive)
+		const assistantMsgIndex = agentMessages.length
 		agentMessages.push({
-			role: 'user',
-			content: userPrompt,
+			role: 'assistant',
+			content: '',
+			stream_items: [],
+			status: 'running',
 			timestamp: Date.now()
 		})
 
-		// Convert to AgentMessage format (just role + content)
-		const conversationHistory: AgentMessage[] = agentMessages
-			.filter((m: any) => m.role === 'user' || m.role === 'assistant')
-			.map((m: any) => ({ role: m.role, content: m.content }))
+		// Save initial state with user message and running assistant
+		await updateProject(projectId, {
+			agent_chat: agentMessages,
+			agent_status: 'running'
+		})
+
+		// Mark agent as running
+		runningAgents.set(projectId, true)
 
 		// Create snapshot before agent makes changes
-		// Truncate prompt if too long for snapshot label
 		const truncatedPrompt = userPrompt.length > 60 ? userPrompt.slice(0, 60) + '...' : userPrompt
-		await createSnapshot(params.id, `Before: ${truncatedPrompt}`)
+		createSnapshot(projectId, `Before: ${truncatedPrompt}`).catch(console.error)
 
-		// Create streaming response
-		const encoder = new TextEncoder()
-		let fullResponse = ''
-		const toolCalls: Array<{ name: string; args?: Record<string, any>; result?: string }> = []
+		// Convert to AgentMessage format for LLM
+		const conversationHistory: AgentMessage[] = agentMessages
+			.filter((m: any) => m.role === 'user' || (m.role === 'assistant' && m.content))
+			.map((m: any) => ({ role: m.role, content: m.content }))
 
-		const stream = new ReadableStream({
-			async start(controller) {
-				try {
-					const { run_agent } = await import('$lib/ai/sdk-agent')
+		// Fire-and-forget: run agent in background
+		runAgentInBackground(projectId, llmConfig, agentMessages, assistantMsgIndex, conversationHistory, spec, truncatedPrompt)
 
-					const result = await run_agent(llmConfig, params.id, conversationHistory, spec, {
-						onText: (text) => {
-							fullResponse += text
-							controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk: text })}\n\n`))
-						},
-						onToolCallStart: (name) => {
-							// Tool is starting to generate - show loading state immediately
-							controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-								toolCallStart: { name },
-								incremental: true
-							})}\n\n`))
-						},
-						onToolCall: (name, args) => {
-							// Track tool call (result will be added when onToolResult fires)
-							toolCalls.push({ name, args })
-							controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-								toolCall: { name, parameters: args },
-								incremental: true
-							})}\n\n`))
-						},
-						onToolResult: (name, result) => {
-							console.log('[Server] onToolResult called:', name, result?.slice?.(0, 100) || result)
-							// Find and update the matching tool call with its result
-							const call = toolCalls.find(c => c.name === name && !c.result)
-							if (call) call.result = result
+		// Return immediately
+		return json({ started: true, status: 'running' })
 
-							controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-								toolResult: result,
-								toolCall: { name, parameters: call?.args },
-								incremental: true
-							})}\n\n`))
-						},
-						onError: (error) => {
-							controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`))
-						}
-					})
-
-					// Save assistant response with structured tool_calls
-					agentMessages.push({
-						role: 'assistant',
-						content: fullResponse,
-						tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-						timestamp: Date.now()
-					})
-					await updateProject(params.id, { agent_chat: agentMessages })
-
-					// Create snapshot after agent makes changes
-					await createSnapshot(params.id, `After: ${truncatedPrompt}`)
-
-					// Send usage with cost
-					const cost = calculateCost(llmConfig.model, {
-						promptTokens: result.usage.promptTokens,
-						completionTokens: result.usage.completionTokens,
-						totalTokens: result.usage.promptTokens + result.usage.completionTokens
-					}, llmConfig.provider)
-
-					controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-						done: true,
-						usage: {
-							promptTokens: result.usage.promptTokens,
-							completionTokens: result.usage.completionTokens,
-							totalTokens: result.usage.promptTokens + result.usage.completionTokens,
-							model: llmConfig.model,
-							cost
-						}
-					})}\n\n`))
-				} catch (error: any) {
-					const formattedError = formatError(error)
-					controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: formattedError })}\n\n`))
-				} finally {
-					controller.close()
-				}
-			}
-		})
-
-		return new Response(stream, {
-			headers: {
-				'Content-Type': 'text/event-stream',
-				'Cache-Control': 'no-cache',
-				'Connection': 'keep-alive'
-			}
-		})
 	} catch (error: any) {
+		runningAgents.delete(projectId)
 		if (error.status === 404) {
 			return json({ error: 'Project not found' }, { status: 404 })
 		}
 		const formattedError = formatError(error)
 		return json({ error: formattedError }, { status: 500 })
+	}
+}
+
+// Background agent execution - updates database as it runs
+async function runAgentInBackground(
+	projectId: string,
+	llmConfig: { provider: LLMProvider; apiKey: string; model: string; baseUrl?: string },
+	agentMessages: any[],
+	assistantMsgIndex: number,
+	conversationHistory: AgentMessage[],
+	spec: string,
+	truncatedPrompt: string
+) {
+	let fullResponse = ''
+	const toolCalls: Array<{ name: string; args?: Record<string, any>; result?: string }> = []
+	const streamItems: Array<{ type: 'text' | 'tool'; content?: string; name?: string; args?: Record<string, any>; result?: string }> = []
+
+	// Throttle DB updates to avoid hammering Pocketbase
+	let lastDbUpdate = 0
+	const DB_UPDATE_INTERVAL = 300 // ms
+	let pendingDbUpdate = false
+
+	async function updateDb(force = false) {
+		const now = Date.now()
+		if (!force && now - lastDbUpdate < DB_UPDATE_INTERVAL) {
+			// Schedule a pending update if not already scheduled
+			if (!pendingDbUpdate) {
+				pendingDbUpdate = true
+				setTimeout(() => {
+					pendingDbUpdate = false
+					updateDb(true)
+				}, DB_UPDATE_INTERVAL - (now - lastDbUpdate))
+			}
+			return
+		}
+		lastDbUpdate = now
+
+		// Update assistant message in place
+		agentMessages[assistantMsgIndex] = {
+			...agentMessages[assistantMsgIndex],
+			content: fullResponse,
+			stream_items: [...streamItems],
+			tool_calls: toolCalls.length > 0 ? [...toolCalls] : undefined
+		}
+
+		try {
+			await updateProject(projectId, { agent_chat: agentMessages })
+		} catch (err) {
+			console.error('[Agent] Failed to update DB:', err)
+		}
+	}
+
+	try {
+		const { run_agent } = await import('$lib/ai/sdk-agent')
+
+		const result = await run_agent(llmConfig, projectId, conversationHistory, spec, {
+			onText: (text) => {
+				fullResponse += text
+				// Add to stream_items (append to last text item if exists)
+				const lastItem = streamItems[streamItems.length - 1]
+				if (lastItem && lastItem.type === 'text') {
+					lastItem.content = (lastItem.content || '') + text
+				} else {
+					streamItems.push({ type: 'text', content: text })
+				}
+				updateDb()
+			},
+			onToolCallStart: (name) => {
+				// Add pending tool to stream_items
+				streamItems.push({ type: 'tool', name, result: undefined })
+				updateDb()
+			},
+			onToolCall: (name, args) => {
+				toolCalls.push({ name, args })
+				// Update the pending tool item with args
+				const pendingTool = streamItems.find(s => s.type === 'tool' && s.name === name && !s.result)
+				if (pendingTool) pendingTool.args = args
+				updateDb()
+			},
+			onToolResult: (name, resultStr) => {
+				console.log('[Agent] onToolResult:', name, resultStr?.slice?.(0, 100) || resultStr)
+				const call = toolCalls.find(c => c.name === name && !c.result)
+				if (call) call.result = resultStr
+				// Update the tool item with result
+				const toolItem = streamItems.find(s => s.type === 'tool' && s.name === name && !s.result)
+				if (toolItem) toolItem.result = resultStr
+				updateDb(true) // Force update on tool result
+			},
+			onError: (error) => {
+				console.error('[Agent Error]', error)
+			}
+		})
+
+		// Calculate cost
+		const cost = calculateCost(llmConfig.model, {
+			promptTokens: result.usage.promptTokens,
+			completionTokens: result.usage.completionTokens,
+			totalTokens: result.usage.promptTokens + result.usage.completionTokens
+		}, llmConfig.provider)
+
+		// Final update with completed status
+		agentMessages[assistantMsgIndex] = {
+			role: 'assistant',
+			content: fullResponse,
+			stream_items: streamItems,
+			tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+			usage: {
+				promptTokens: result.usage.promptTokens,
+				completionTokens: result.usage.completionTokens,
+				totalTokens: result.usage.promptTokens + result.usage.completionTokens,
+				model: llmConfig.model,
+				cost
+			},
+			status: 'complete',
+			timestamp: Date.now()
+		}
+
+		await updateProject(projectId, {
+			agent_chat: agentMessages,
+			agent_status: 'idle'
+		})
+
+		// Create snapshot after
+		await createSnapshot(projectId, `After: ${truncatedPrompt}`)
+
+	} catch (error: any) {
+		console.error('[Agent] Background execution failed:', error)
+		const formattedError = formatError(error)
+
+		// Update with error status
+		agentMessages[assistantMsgIndex] = {
+			...agentMessages[assistantMsgIndex],
+			content: fullResponse || `Error: ${formattedError}`,
+			status: 'error',
+			error: formattedError,
+			timestamp: Date.now()
+		}
+
+		await updateProject(projectId, {
+			agent_chat: agentMessages,
+			agent_status: 'error'
+		}).catch(console.error)
+
+	} finally {
+		runningAgents.delete(projectId)
 	}
 }

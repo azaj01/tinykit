@@ -11,7 +11,7 @@ export type Project = {
 	design: DesignField[]
 	content: ContentField[]
 	snapshots: Snapshot[]
-	agent_chat: Message[]
+	agent_chat: AgentMessage[]
 	custom_instructions: string
 	data: Record<string, any>
 	settings: ProjectSettings
@@ -42,12 +42,14 @@ export type StreamItem =
 	| { type: 'text'; content: string }
 	| { type: 'tool'; name: string; args?: Record<string, any>; result?: string }
 
-export type Message = {
+export type AgentMessage = {
 	role: "user" | "assistant"
 	content: string // For user messages, or full text for completed assistant messages
 	stream_items?: StreamItem[] // For assistant messages: ordered list of text chunks and tool calls
 	tool_calls?: ToolCall[] // Legacy: still used for backwards compat
 	usage?: TokenUsage | null
+	status?: 'running' | 'complete' | 'error' // For assistant messages: streaming status
+	timestamp?: number
 }
 
 // Token usage and cost tracking
