@@ -447,11 +447,10 @@
       </div>
     {:else}
       {#each messages as message}
-        {console.log({ message })}
         {#if message.content || (message.stream_items && message.stream_items.length > 0)}
           <div
             in:fade={{ duration: 200 }}
-            class="relative space-y-1 {bubble_bg} p-4 rounded-sm {message.role ===
+            class="relative space-y-1 {bubble_bg} p-4 rounded-md {message.role ===
             'user'
               ? 'border-l-2 border-l-[var(--builder-accent)]'
               : ''}"
