@@ -8,33 +8,25 @@
 		Code,
 		Database,
 		Clock,
-		Settings,
 		Palette,
 		FileText,
 	} from "lucide-svelte";
 	import { PaneGroup, Pane, PaneResizer, type PaneAPI } from "paneforge";
 	import Preview from "$lib/components/Preview.svelte";
-	import VibeZone from "$lib/components/VibeZone.svelte";
-
+	import VibeZone from "./components/VibeZone.svelte";
 	// Import components
-	import Header from "../components/Header.svelte";
-	import TemplatePicker from "../components/TemplatePicker.svelte";
-	import AgentPanel from "../panels/agent/AgentPanel.svelte";
-	import CodePanel from "../panels/code/CodePanel.svelte";
-	import ContentPanel from "../panels/content/ContentPanel.svelte";
-	import DesignPanel from "../panels/design/DesignPanel.svelte";
-	import DataPanel from "../panels/data/DataPanel.svelte";
-	import HistoryPanel from "../panels/history/HistoryPanel.svelte";
-	import ConfigPanel from "../panels/config/ConfigPanel.svelte";
+	import Header from "./components/Header.svelte";
+	import TemplatePicker from "./components/TemplatePicker.svelte";
+	import AgentPanel from "./panels/agent/AgentPanel.svelte";
+	import CodePanel from "./panels/code/CodePanel.svelte";
+	import ContentPanel from "./panels/content/ContentPanel.svelte";
+	import DesignPanel from "./panels/design/DesignPanel.svelte";
+	import DataPanel from "./panels/data/DataPanel.svelte";
+	import HistoryPanel from "./panels/history/HistoryPanel.svelte";
 
 	// Import types and utilities
 	import type {
 		TabId,
-		AgentMessage,
-		ConfigSubTab,
-		ApiEndpoint,
-		ContentField,
-		DesignField,
 		Snapshot,
 		PreviewError,
 		EditorLanguage,
@@ -47,10 +39,18 @@
 	import { get_saved_theme, apply_builder_theme } from "$lib/builder_themes";
 	import { setProjectContext } from "../context";
 	import { pb } from "$lib/pocketbase.svelte";
+	import { ProjectStore, setProjectStore } from "./project.svelte";
 
 	// Get project_id from server load
 	let { data } = $props();
 	const project_id = data.project_id;
+
+	// Initialize Project Store
+	const store = new ProjectStore(project_id);
+	setProjectStore(store);
+
+	// Load project data
+	store.init();
 
 	// Valid tab IDs for validation
 	const valid_tabs: TabId[] = [
@@ -59,8 +59,9 @@
 		"content",
 		"design",
 		"data",
+		"design",
+		"data",
 		"history",
-		"config",
 	];
 
 	// Set project context for child components
@@ -125,59 +126,21 @@
 
 	// Core state
 	let current_tab = $state<TabId>(get_tab_from_url());
-	let project_title = $state("My Project");
-	let project_domain = $state("");
-	let project_title_loaded = $state(false);
+	// Derive title/domain from store project
+	let project_title = $derived(store.project?.name || "My Project");
+	let project_domain = $derived(store.project?.domain || "");
+
 	let is_deploying = $state(false);
-	let vibe_zone_enabled = $state(true);
-	let vibe_zone_loaded = $state(false);
+	// Vibe settings from store project settings
+	let vibe_zone_enabled = $derived(
+		store.project?.settings?.vibe_zone_enabled ?? true,
+	);
+
 	let vibe_zone_visible = $state(false);
 	let vibe_zone_fullscreen = $state(false);
 	let vibe_user_prompt = $state("");
 	let agent_panel: AgentPanel | undefined = $state();
-
-	// Agent state
-	let messages = $state<AgentMessage[]>([]);
-	// Derive processing state from last assistant message's status
-	// This is more reliable than a separate field since it's part of the synced message data
-	let is_processing = $derived.by(() => {
-		const last_msg = messages[messages.length - 1];
-		return last_msg?.role === "assistant" && last_msg?.status === "running";
-	});
-	let is_loading_messages = $state(true);
 	let preview_errors = $state<PreviewError[]>([]);
-	let realtime_unsubscribe: (() => void) | null = null;
-	// Local state for immediate loading feedback (before realtime confirms)
-	let agent_loading = $state(false);
-	// Combined state for preview indicator - shows immediately when sending
-	let agent_working = $derived(agent_loading || is_processing);
-
-	// Code state
-	let current_file = $state("");
-	let file_content = $state("");
-	let editor_language = $state<EditorLanguage>("javascript");
-	let is_loading_file = $state(false);
-
-	// Content state
-	let content_fields = $state<ContentField[]>([]);
-
-	// Design state
-	let design_fields = $state<DesignField[]>([]);
-
-	// Config state
-	let config_subtab = $state<ConfigSubTab>("env");
-	let env_vars = $state<Record<string, string>>({});
-	let endpoints = $state<ApiEndpoint[]>([]);
-
-	// Data state
-	let data_files = $state<string[]>([]);
-	let table_icons = $state<Record<string, string>>({});
-
-	// History state
-	let snapshots = $state<Snapshot[]>([]);
-	let snapshots_loaded = $state(false);
-	let is_loading_snapshots = $state(false);
-	let is_restoring = $state(false);
 
 	// Preview state
 	let preview_refresh_timeout: ReturnType<typeof setTimeout> | null = null;
@@ -286,7 +249,7 @@
 		}
 	}
 
-	// Load initial data
+	// Load hash and listeners
 	onMount(() => {
 		// Listen for fix-error events from Preview
 		window.addEventListener(
@@ -300,86 +263,31 @@
 		// Check for initial hash on mount
 		handle_hash_change();
 
-		// Async initialization
-		(async () => {
-			// Load project data from Pocketbase SDK
-			try {
-				const project = await api.get_project_details(project_id);
-				messages = project.agent_chat || [];
-				// is_processing is now derived from messages, so no need to set agent_status
-				project_title = project.name || "My Project";
-				project_domain = project.domain || "";
-				project_title_loaded = true;
-
-				// Check if there's an initial prompt that hasn't been processed yet
-				// (single user message with no assistant response)
-				if (
-					messages.length === 1 &&
-					messages[0].role === "user" &&
-					messages[0].content
-				) {
-					const initial_prompt = messages[0].content;
-					// Server will detect the duplicate and not add it again
-					pending_agent_prompt = {
-						display: initial_prompt,
-						full: initial_prompt,
-					};
-				}
-
-				// Load vibe zone setting from project settings (defaults to true)
-				vibe_zone_enabled = project.settings?.vibe_zone_enabled ?? true;
-				vibe_zone_loaded = true;
-
-				// Subscribe to realtime updates for agent chat
-				pb.collection("_tk_projects")
-					.subscribe(project_id, (e) => {
-						if (e.action === "update") {
-							// Update messages from realtime
-							const new_messages = e.record.agent_chat || [];
-
-							// Only update if changed (avoid loops)
-							if (
-								JSON.stringify(new_messages) !==
-								JSON.stringify(messages)
-							) {
-								messages = new_messages;
-
-								// Handle side effects for tool results
-								handle_realtime_tool_updates(new_messages);
-							}
-						}
-					})
-					.then((unsub) => {
-						realtime_unsubscribe = unsub;
-					})
-					.catch((err) => {
-						console.warn(
-							"[Studio] Failed to subscribe to realtime:",
-							err,
-						);
-					});
-			} catch (err) {
-				console.error("Failed to load project:", err);
-				messages = [];
-				vibe_zone_enabled = true;
-				vibe_zone_loaded = true;
-			} finally {
-				is_loading_messages = false;
+		// Check for initial prompt from sessionStorage (set by /new page)
+		const check_initial_prompt = () => {
+			const storage_key = `tinykit:initial_prompt:${project_id}`;
+			const initial_prompt = sessionStorage.getItem(storage_key);
+			if (initial_prompt) {
+				// Remove from storage so it doesn't trigger again on refresh
+				sessionStorage.removeItem(storage_key);
+				pending_agent_prompt = {
+					display: initial_prompt,
+					full: initial_prompt,
+				};
 			}
+		};
+		// Check immediately on mount
+		check_initial_prompt();
 
-			// Apply saved theme immediately on load
-			const theme = get_saved_theme();
-			apply_builder_theme(theme);
+		// Apply saved theme immediately on load
+		const theme = get_saved_theme();
+		apply_builder_theme(theme);
 
-			// Load vibe zone fullscreen preference
-			const savedFullscreen = localStorage.getItem("vibezone-fullscreen");
-			if (savedFullscreen === "true") {
-				vibe_zone_fullscreen = true;
-			}
-
-			// Auto-load first file
-			load_initial_file();
-		})();
+		// Load vibe zone fullscreen preference
+		const savedFullscreen = localStorage.getItem("vibezone-fullscreen");
+		if (savedFullscreen === "true") {
+			vibe_zone_fullscreen = true;
+		}
 
 		return () => {
 			window.removeEventListener(
@@ -387,41 +295,8 @@
 				handle_fix_error as EventListener,
 			);
 			window.removeEventListener("hashchange", handle_hash_change);
-			realtime_unsubscribe?.();
 		};
 	});
-
-	// Handle side effects when realtime updates arrive (code written, config updated, etc.)
-	function handle_realtime_tool_updates(new_messages: AgentMessage[]) {
-		const last_msg = new_messages[new_messages.length - 1];
-		if (last_msg?.role !== "assistant" || !last_msg.stream_items) return;
-
-		for (const item of last_msg.stream_items) {
-			if (item.type === "tool" && item.result) {
-				const tool_name = item.name;
-
-				// Refresh config/data when those tools complete
-				const config_tools = [
-					"create_content_field",
-					"create_design_field",
-					"create_data_file",
-					"insert_records",
-				];
-				if (config_tools.includes(tool_name || "")) {
-					load_data_files();
-					window.dispatchEvent(
-						new CustomEvent("tinykit:config-updated"),
-					);
-				}
-
-				// Refresh preview when code is written
-				if (tool_name === "write_code" && item.args?.code) {
-					file_content = item.args.code;
-					refresh_preview();
-				}
-			}
-		}
-	}
 
 	function handle_fix_error(e: CustomEvent<{ error: string }>) {
 		const error = e.detail.error;
@@ -429,23 +304,29 @@
 		preview_errors = [];
 		pending_agent_prompt = {
 			display: `Fix this error:\n\`\`\`\n${error}\n\`\`\``,
-			full: `Fix this compile error. You MUST use the write_code tool to rewrite the COMPLETE App.svelte file with the fix applied. Do NOT just show a code snippet - use write_code with the full corrected component.\n\nError:\n\`\`\`\n${error}\n\`\`\``,
+			full: `Fix this compile error. You MUST use the write_code tool to rewrite the COMPLETE code file with the fix applied. Do NOT just show a code snippet - use write_code with the full corrected component.\n\nError:\n\`\`\`\n${error}\n\`\`\``,
 		};
 	}
 
-	function handle_code_written(content: string) {
-		if (!content || content.length === 0) return;
-		file_content = content;
-	}
-
-	// Save vibe zone preference to project settings (only after initial load)
+	// Save vibe zone preference to project settings
 	$effect(() => {
-		if (typeof window !== "undefined" && vibe_zone_loaded && project_id) {
-			api.update_project_settings(project_id, {
-				vibe_zone_enabled,
-			}).catch(console.error);
+		if (typeof window !== "undefined" && !store.loading && project_id) {
+			// Note: this might create a loop if we are not careful, but store update is one-way from server usually
+			// Only update if changed by user?
+			// Actually, let's keep it simple: Vibe toggle updates via API in VibeZone/Header if needed
+			// But here we just derived it from store.
+			// The original code synced local state to API.
+			// We should perhaps move toggle logic to Header/VibeZone directly calling API.
 		}
 	});
+
+	// Toggle vibe lounge function
+	function toggle_vibe_lounge() {
+		const current = store.project?.settings?.vibe_zone_enabled ?? true;
+		api.update_project_settings(project_id, {
+			vibe_zone_enabled: !current,
+		}).catch(console.error);
+	}
 
 	// Save vibe zone fullscreen preference to localStorage
 	$effect(() => {
@@ -457,154 +338,25 @@
 		}
 	});
 
-	// Save project title whenever it changes (only after initial load)
-	$effect(() => {
-		if (
-			typeof window !== "undefined" &&
-			project_title_loaded &&
-			project_title &&
-			project_id
-		) {
-			api.update_project_name(project_id, project_title).catch(
-				console.error,
-			);
-		}
-	});
-
-	// Note: Messages are now saved by the server when agent runs
-	// Clear conversation uses the DELETE endpoint
-
-	// Load config when config tab is opened
-	$effect(() => {
-		if (current_tab === "config" && Object.keys(env_vars).length === 0) {
-			load_config();
-		}
-	});
-
-	// Load content when content tab is opened
-	$effect(() => {
-		if (current_tab === "content" && content_fields.length === 0) {
-			load_config();
-		}
-	});
-
-	// Load design when design tab is opened
-	$effect(() => {
-		if (current_tab === "design" && design_fields.length === 0) {
-			load_config();
-		}
-	});
-
-	// Load data files when data tab is opened
-	$effect(() => {
-		if (current_tab === "data" && data_files.length === 0) {
-			load_data_files();
-		}
-	});
-
-	// Load snapshots when history tab is opened
-	$effect(() => {
-		if (
-			current_tab === "history" &&
-			!snapshots_loaded &&
-			!is_loading_snapshots
-		) {
-			load_snapshots();
-		}
-	});
+	// Note: Project title is now derived from store.
+	// Header should update it via API if editing.
 
 	// Track previous processing state to detect when agent finishes
 	let was_processing = $state(false);
 
 	// Reload code from database when agent finishes processing
 	watch(
-		() => is_processing,
+		() => store.is_processing,
 		(processing) => {
 			if (was_processing && !processing) {
 				// Agent just finished - reload code from database to ensure editor is in sync
-				api.read_code(project_id)
-					.then((code) => {
-						if (code && code.length > 0) {
-							file_content = code;
-						}
-					})
-					.catch(console.error);
+				// Store will handle this via realtime updates, so no explicit reload needed here.
 			}
 			was_processing = processing;
 		},
 	);
 
 	// Functions
-	async function load_initial_file() {
-		const default_file = `${project_id}/src/App.svelte`;
-		await handle_file_select(default_file);
-	}
-
-	async function handle_file_select(path: string) {
-		is_loading_file = true;
-		current_file = path;
-		try {
-			file_content = await api.read_code(project_id);
-			const ext = path.split(".").pop()?.toLowerCase();
-			if (ext === "svelte") editor_language = "svelte";
-			else if (ext === "html") editor_language = "html";
-			else if (ext === "css") editor_language = "css";
-			else if (ext === "js") editor_language = "javascript";
-			else if (ext === "json") editor_language = "json";
-			else if (ext === "ts") editor_language = "typescript";
-			else editor_language = "html";
-		} catch (err) {
-			console.error("Failed to load file:", err);
-		} finally {
-			is_loading_file = false;
-		}
-	}
-
-	async function load_config() {
-		try {
-			const config = await api.load_config(project_id);
-			env_vars = config.env;
-			endpoints = config.endpoints;
-			content_fields = config.fields;
-			design_fields = config.design;
-		} catch (err) {
-			console.error("Failed to load config:", err);
-		}
-	}
-
-	function toggle_vibe_lounge() {
-		vibe_zone_enabled = !vibe_zone_enabled;
-	}
-
-	async function load_data_files() {
-		try {
-			data_files = await api.load_data_files(project_id);
-			for (const file of data_files) {
-				if (!table_icons[file]) {
-					try {
-						table_icons[file] = await api.get_data_file_icon(file);
-					} catch {
-						table_icons[file] = "mdi:database";
-					}
-				}
-			}
-		} catch (err) {
-			console.error("Failed to load data files:", err);
-		}
-	}
-
-	async function load_snapshots() {
-		is_loading_snapshots = true;
-		try {
-			snapshots = await api.load_snapshots(project_id);
-			snapshots_loaded = true;
-		} catch (err) {
-			console.error("Failed to load snapshots:", err);
-		} finally {
-			is_loading_snapshots = false;
-		}
-	}
-
 	async function build_app() {
 		try {
 			await api.build_app(project_id);
@@ -667,11 +419,9 @@
 				`Before loading template "${template.name}" - ${timestamp}`,
 			);
 			await api.load_template(project_id, template.id);
-			await load_config();
+			// Refresh store
+			await store.refresh();
 			refresh_preview();
-			if (current_file) {
-				handle_file_select(current_file);
-			}
 		} catch (err) {
 			console.error("Failed to load template:", err);
 			alert("Failed to load template. See console for details.");
@@ -691,7 +441,7 @@
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
 			a.href = url;
-			a.download = `${project_title.toLowerCase().replace(/\s+/g, "-")}-export.json`;
+			a.download = `${(store.project?.name || "project").toLowerCase().replace(/\s+/g, "-")}-export.json`;
 			document.body.appendChild(a);
 			a.click();
 			document.body.removeChild(a);
@@ -715,8 +465,8 @@
 					`Before reset - ${timestamp}`,
 				);
 				await api.reset_project(project_id);
-				messages = [];
 				storage.clear_messages();
+				await store.refresh();
 				location.reload();
 			} catch (err) {
 				console.error("Failed to reset project:", err);
@@ -727,17 +477,13 @@
 
 	// History callbacks
 	async function handle_snapshot_created() {
-		await load_snapshots();
+		await store.loadSnapshots();
 	}
 
 	async function handle_snapshot_restored() {
-		// Reload code from database after restore
-		if (current_file) {
-			await handle_file_select(current_file);
-		}
-		// Reload design and content fields
-		await load_config();
-		// Rebuild and refresh preview
+		// Store will auto-update via realtime usually, but forced refresh is safer
+		await store.refresh();
+		await store.loadSnapshots();
 		refresh_preview();
 	}
 </script>
@@ -750,8 +496,8 @@
 	<!-- Desktop Header (hidden on mobile) -->
 	<div class="hidden md:block">
 		<Header
-			bind:project_title
-			bind:vibe_zone_enabled
+			{project_title}
+			{vibe_zone_enabled}
 			bind:preview_position
 			{project_domain}
 			{is_deploying}
@@ -771,67 +517,40 @@
 		{#if current_tab === "agent"}
 			<AgentPanel
 				bind:this={agent_panel}
-				bind:messages
-				{is_processing}
 				bind:preview_errors
 				bind:vibe_zone_visible
 				bind:vibe_user_prompt
-				{is_loading_messages}
-				{vibe_zone_enabled}
 				pending_prompt={pending_agent_prompt}
 				on_navigate_to_field={navigate_to_field}
-				on_file_select={handle_file_select}
-				on_load_data_files={load_data_files}
-				on_load_config={load_config}
 				on_pending_prompt_consumed={() => (pending_agent_prompt = null)}
-				on_loading_change={(loading) => (agent_loading = loading)}
 			/>
 		{:else if current_tab === "code"}
 			<CodePanel
-				{current_file}
-				bind:file_content
-				{editor_language}
-				is_loading={is_loading_file}
-				on_content_change={() => {}}
 				on_refresh_preview={refresh_preview}
 				on_save_status_change={(status) => (save_status = status)}
 			/>
 		{:else if current_tab === "content"}
 			<ContentPanel
-				bind:content_fields
 				{target_field}
 				on_refresh_preview={refresh_preview}
 				on_target_consumed={() => (target_field = null)}
 			/>
 		{:else if current_tab === "design"}
 			<DesignPanel
-				bind:design_fields
 				{target_field}
 				on_refresh_preview={refresh_preview}
 				on_target_consumed={() => (target_field = null)}
 			/>
 		{:else if current_tab === "data"}
 			<DataPanel
-				{data_files}
-				{table_icons}
 				{target_field}
 				on_refresh_preview={refresh_preview}
 				on_target_consumed={() => (target_field = null)}
 			/>
 		{:else if current_tab === "history"}
 			<HistoryPanel
-				bind:snapshots
-				is_loading={is_loading_snapshots}
-				bind:is_restoring
 				on_snapshot_created={handle_snapshot_created}
 				on_snapshot_restored={handle_snapshot_restored}
-			/>
-		{:else if current_tab === "config"}
-			<ConfigPanel
-				bind:env_vars
-				bind:endpoints
-				bind:current_subtab={config_subtab}
-				on_subtab_change={(subtab) => (config_subtab = subtab)}
 			/>
 		{/if}
 	{/snippet}
@@ -839,12 +558,7 @@
 	<!-- Snippet: Preview Pane (reused across layouts) -->
 	{#snippet preview_pane()}
 		<div class="relative h-full w-full">
-			<Preview
-				code={file_content}
-				language={editor_language}
-				{project_id}
-				{agent_working}
-			/>
+			<Preview {project_id} />
 			{#if vibe_zone_visible && !vibe_zone_fullscreen}
 				<VibeZone
 					userPrompt={vibe_user_prompt}

@@ -171,6 +171,7 @@ async function rollup_worker({ component, head = { code: '', data: {} }, hydrate
 					if (warning.code === 'CIRCULAR_DEPENDENCY' && warning.ids?.some((id) => id.includes('esm.sh'))) {
 						return
 					}
+					if (warning.code === "SOURCEMAP_BROKEN") return
 					// Use default warning handler for other warnings
 					warn(warning)
 				},

@@ -42,7 +42,9 @@
       // Generate a project name using the LLM
       let project_name = generate_name_from_prompt(prompt); // fallback
       try {
-        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
         if (pb.authStore.token) {
           headers["Authorization"] = `Bearer ${pb.authStore.token}`;
         }
@@ -69,10 +71,18 @@
 
       // Validate project was created successfully
       if (!project?.id) {
-        throw new Error("Project creation returned invalid response")
+        throw new Error("Project creation returned invalid response");
       }
 
-      // Redirect to builder (domain is now set, so /tinykit/studio will work)
+      // Store initial prompt in sessionStorage for studio to pick up and send
+      if (prompt.trim()) {
+        sessionStorage.setItem(
+          `tinykit:initial_prompt:${project.id}`,
+          prompt.trim(),
+        );
+      }
+
+      // Redirect to studio
       goto(`/tinykit/studio?id=${project.id}`);
     } catch (err: any) {
       console.error("Failed to create project:", err);
@@ -199,11 +209,14 @@
 
       // Reconstruct data object from collections array (including records)
       const data: Record<string, any> = {};
-      if (snapshot_data.collections && Array.isArray(snapshot_data.collections)) {
+      if (
+        snapshot_data.collections &&
+        Array.isArray(snapshot_data.collections)
+      ) {
         for (const col of snapshot_data.collections) {
           data[col.name] = {
             schema: col.schema || [],
-            records: col.records || []
+            records: col.records || [],
           };
         }
       }
@@ -214,14 +227,14 @@
         frontend_code: snapshot_data.frontend_code || "",
         design: snapshot_data.design || [],
         content: snapshot_data.content || [],
-        data
+        data,
       });
 
       goto(`/tinykit/studio?id=${project.id}`);
     } catch (err: any) {
       // Check for specific validation errors
       if (err?.data?.data?.domain?.code === "validation_not_unique") {
-        error_message = `A project already exists for domain "${domain || 'localhost'}". Delete it first or use a different domain.`;
+        error_message = `A project already exists for domain "${domain || "localhost"}". Delete it first or use a different domain.`;
       } else {
         const detail =
           err?.data?.message ||
@@ -240,7 +253,9 @@
   <title>New Project - tinykit</title>
 </svelte:head>
 
-<div class="min-h-screen bg-[var(--builder-bg-primary)] flex flex-col safe-area-top">
+<div
+  class="min-h-screen bg-[var(--builder-bg-primary)] flex flex-col safe-area-top"
+>
   <!-- Header -->
   <header class="border-b border-[var(--builder-border)] px-6 py-4">
     <a

@@ -1,45 +1,55 @@
 <script lang="ts">
-  import type { Snapshot } from "../../types";
-  import * as api from "../../lib/api.svelte";
-  import { getProjectContext } from "../../context";
+  import type { Snapshot } from "../../../types";
+  import * as api from "../../../lib/api.svelte";
+  import { getProjectContext } from "../../../context";
   import { Download, Upload } from "lucide-svelte";
+  import { getProjectStore } from "../../project.svelte";
+  import { onMount } from "svelte";
 
   const { project_id } = getProjectContext();
+  const store = getProjectStore();
 
   type HistoryPanelProps = {
-    snapshots: Snapshot[];
-    is_loading: boolean;
-    is_restoring: boolean;
-    on_snapshot_created: () => Promise<void>;
-    on_snapshot_restored: () => Promise<void>;
+    is_restoring?: boolean;
+    on_snapshot_created?: () => Promise<void>;
+    on_snapshot_restored?: () => Promise<void>;
   };
 
   let {
-    snapshots = $bindable(),
-    is_loading,
-    is_restoring = $bindable(),
+    is_restoring = $bindable(false),
     on_snapshot_created,
     on_snapshot_restored,
   }: HistoryPanelProps = $props();
+
+  let snapshots = $derived(store.snapshots);
+  let is_loading = $derived(store.snapshots_loading);
+
+  onMount(() => {
+    store.loadSnapshots();
+  });
 
   let file_input: HTMLInputElement | undefined = $state();
 
   async function create_snapshot_manual() {
     try {
       await api.create_snapshot(project_id, "Manual snapshot");
-      await on_snapshot_created();
+      await on_snapshot_created?.();
     } catch (err) {
       console.error("Failed to create snapshot:", err);
     }
   }
 
   async function restore_snapshot(id: string) {
-    if (!confirm("Restore this snapshot? Code, design, content, and database records will be overwritten."))
+    if (
+      !confirm(
+        "Restore this snapshot? Code, design, content, and database records will be overwritten.",
+      )
+    )
       return;
     is_restoring = true;
     try {
       await api.restore_snapshot(project_id, id);
-      await on_snapshot_restored();
+      await on_snapshot_restored?.();
     } catch (err) {
       console.error("Failed to restore snapshot:", err);
     } finally {
@@ -100,7 +110,9 @@
       }
 
       if (
-        !confirm("Restore from this file? Code, design, content, and database records will be overwritten.")
+        !confirm(
+          "Restore from this file? Code, design, content, and database records will be overwritten.",
+        )
       ) {
         return;
       }
@@ -115,7 +127,7 @@
         collections: data.collections || [],
       });
 
-      await on_snapshot_restored();
+      await on_snapshot_restored?.();
     } catch (err) {
       console.error("Failed to restore from file:", err);
       alert(

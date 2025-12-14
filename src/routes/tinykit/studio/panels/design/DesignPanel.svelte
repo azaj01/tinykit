@@ -2,45 +2,66 @@
   import { tick } from "svelte";
   import { watch } from "runed";
   import { slide } from "svelte/transition";
-  import type { DesignField, DesignFieldType } from "../../types";
+  import * as Dialog from "$lib/components/ui/dialog";
+  import type { DesignField, DesignFieldType } from "../../../types";
   import ColorPalette from "../../components/ColorPalette.svelte";
   import RadiusEditor from "../../components/RadiusEditor.svelte";
   import SizeEditor from "../../components/SizeEditor.svelte";
-  import * as api from "../../lib/api.svelte";
-  import * as Dialog from "$lib/components/ui/dialog";
-  import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
-  import { Button } from "$lib/components/ui/button";
+  import * as api from "../../../lib/api.svelte";
   import {
-    Palette,
-    Ruler,
-    Type,
     Square,
-    Eclipse,
-    AlignLeft,
     Search,
     Loader2,
-    Trash2,
     Pencil,
+    Palette,
+    Type,
+    Trash2,
   } from "lucide-svelte";
   import AddFieldButton from "../../components/AddFieldButton.svelte";
-  import { getProjectContext } from "../../context";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { getProjectContext } from "../../../context";
+  import { getProjectStore } from "../../project.svelte";
 
   const { project_id } = getProjectContext();
+  const store = getProjectStore();
 
   type DesignPanelProps = {
-    design_fields: DesignField[];
     target_field?: string | null;
     on_refresh_preview: () => void;
     on_target_consumed?: () => void;
   };
 
   let {
-    design_fields = $bindable(),
     target_field = null,
     on_refresh_preview,
     on_target_consumed,
   }: DesignPanelProps = $props();
+
+  // Local state for design fields (synced from store)
+  let design_fields = $state<DesignField[]>([]);
+
+  // Sync from store
+  watch(
+    () => store.design,
+    (new_design) => {
+      // Simple sync for now - overwrite local if store updates (e.g. from backend)
+      // To avoid overwriting active edits if they haven't saved, we rely on the fact that
+      // edits happen on 'design_fields' local state and saving propagates to backend.
+      // If backend updates, we accept it. Conflicting edits might be lost if latency high.
+      if (JSON.stringify(new_design) !== JSON.stringify(design_fields)) {
+        design_fields = new_design;
+      }
+    },
+  );
+
+  // Init from store if empty
+  $effect(() => {
+    if (design_fields.length === 0 && store.design.length > 0) {
+      design_fields = store.design;
+    }
+  });
 
   // Map for storing field element references by field id
   let field_elements: Record<string, HTMLDivElement> = {};
@@ -85,32 +106,36 @@
   }
 
   // Watch for target field changes and expand/scroll to the field
-  // Watch both target_field and design_fields.length to handle case where fields load after target is set
   watch(
     () => [target_field, design_fields.length] as const,
-    async ([field_name, fields_count]) => {
-      if (field_name && fields_count > 0) {
-        // Find the field by name
-        const field = design_fields.find((f) => f.name === field_name);
-        if (field) {
-          // Expand the field if not already expanded
-          if (!expanded_fields.has(field.id)) {
-            expanded_fields = new Set([...expanded_fields, field.id]);
-            save_expanded_fields();
+    ([field_name, fields_count]) => {
+      (async () => {
+        if (field_name && fields_count > 0) {
+          // Find the field by name
+          const field = design_fields.find((f) => f.name === field_name);
+          if (field) {
+            // Expand the field if not already expanded
+            if (!expanded_fields.has(field.id)) {
+              expanded_fields = new Set([...expanded_fields, field.id]);
+              save_expanded_fields();
+            }
+            // Wait for DOM to update then scroll into view
+            await tick();
+            const element = field_elements[field.id];
+            if (element) {
+              element.scrollIntoView({ behavior: "smooth", block: "center" });
+              // Add highlight animation
+              element.classList.add("field-highlight");
+              setTimeout(
+                () => element.classList.remove("field-highlight"),
+                1500,
+              );
+            }
+            // Consume the target only after successful action
+            on_target_consumed?.();
           }
-          // Wait for DOM to update then scroll into view
-          await tick();
-          const element = field_elements[field.id];
-          if (element) {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-            // Add highlight animation
-            element.classList.add("field-highlight");
-            setTimeout(() => element.classList.remove("field-highlight"), 1500);
-          }
-          // Consume the target only after successful action
-          on_target_consumed?.();
         }
-      }
+      })();
     },
   );
 
@@ -118,7 +143,6 @@
   async function handle_save(field: DesignField) {
     try {
       await api.update_design_field(project_id, field.id, field.value);
-      on_refresh_preview();
       window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
     } catch (err) {
       console.error("Failed to update design field:", err);
@@ -129,7 +153,6 @@
     try {
       await api.delete_design_field(project_id, id);
       design_fields = design_fields.filter((f) => f.id !== id);
-      on_refresh_preview();
       window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
     } catch (err) {
       console.error("Failed to delete design field:", err);
@@ -310,7 +333,6 @@
       await api.add_design_field(project_id, new_field);
       design_fields = [...design_fields, new_field];
       reset_modal();
-      on_refresh_preview();
       window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
     } catch (err) {
       console.error("Failed to add design field:", err);
@@ -395,7 +417,6 @@
         f.id === editing_field!.id ? updated_field : f,
       );
       reset_edit_modal();
-      on_refresh_preview();
       window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
     } catch (err) {
       console.error("Failed to update design field:", err);

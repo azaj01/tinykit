@@ -1,29 +1,33 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import {
     processCode,
     dynamic_iframe_srcdoc,
     generate_design_css,
     extract_web_fonts,
   } from "$lib/compiler/init";
-  import { debounce } from "lodash-es";
-  import * as api from "../../routes/tinykit/lib/api.svelte";
+  import { watch } from "runed";
   import { Sparkles } from "lucide-svelte";
-  import { pb } from "$lib/pocketbase.svelte";
-
+  // Import store type only to avoid hard dependency if possible?
+  // We need the value to access state.
+  // Using relative path to access route-level store
+  import { getProjectStore } from "$tinykit/studio/project.svelte";
+  import _ from "lodash-es";
   let {
-    code = $bindable(""),
-    language = "html",
     project_id,
-    agent_working = false,
   }: {
-    code?: string;
-    language?: string;
     project_id: string;
-    agent_working?: boolean;
   } = $props();
 
-  let realtime_unsubscribe: (() => void) | null = null;
+  // Try to get store from context
+  let store: any = null;
+  try {
+    store = getProjectStore();
+  } catch (e) {
+    // Ignore - not in studio context
+  }
+
+  // let realtime_unsubscribe: (() => void) | null = null;
   let is_mounted = false;
 
   let preview_iframe = $state<HTMLIFrameElement | null>(null);
@@ -33,38 +37,84 @@
   let compile_error = $state<string | null>(null);
   let error_type = $state<"compile" | "runtime">("compile");
   let is_compiling = $state(false);
-  let show_building = $state(false);
+
+  // Use store processing state if available
+  let is_processing = $derived(store?.is_processing);
+
+  // Watch for code changes
+  const active_code = $derived(store?.project?.frontend_code);
+  watch(
+    () => ({ is_processing, active_code }),
+    ({ is_processing, active_code }) => {
+      if (is_processing) return;
+      if (active_code) {
+        compile_component();
+      } else if (!active_code) {
+        compiled_app = null;
+        compile_error = null;
+        channel?.postMessage({ event: "CLEAR_APP" });
+      }
+    },
+  );
+
+  // Watch for app data changes
+  let last_sent_data: any;
+  watch(
+    () => store?.project?.data,
+    (data) => {
+      if (_.isEqual(data, last_sent_data)) return;
+      const cloned_data = _.cloneDeep(data);
+      channel?.postMessage({
+        event: "DATA_UPDATED",
+        payload: { data: cloned_data },
+      });
+      last_sent_data = cloned_data;
+    },
+  );
+
   let content_fields = $state<any[]>([]);
   let design_fields = $state<any[]>([]);
   let data_collections = $state<string[]>([]);
+
   let srcdoc = $state("");
   const broadcast_id = "crud-preview";
-  let building_timeout: ReturnType<typeof setTimeout> | null = null;
   let pending_config_update = $state(false);
   let compilation_version = 0;
 
+  $effect(() => {
+    if (store && store.project) {
+      // Sync basic data
+      // Note: diffing happens in the update_config function usually,
+      // but here we are reacting to fine-grained store updates.
+      // We can call a unified update function.
+      handle_store_update();
+    }
+  });
+
+  // React to store changes if available
+  // We use effects to sync store state to local state to maintain the diffing logic
+  // and iframe communication layer
+  // watch(
+  //   () => store,
+  //   (store) => {
+  //     if (!store.project) return;
+  //     handle_store_update();
+  //   },
+  // );
+
+  async function handle_store_update() {
+    if (!store) return;
+
+    const new_content = store.content || [];
+    const new_design = store.design || [];
+    const new_data = store.data_files || [];
+
+    // We reuse the existing diffing logic
+    await apply_config_update(new_content, new_design, new_data);
+  }
+
   onMount(() => {
     is_mounted = true;
-
-    // Load config data for $content, $design, and $data
-    api
-      .load_config(project_id)
-      .then(async (config) => {
-        content_fields = config.fields || [];
-        design_fields = config.design || [];
-        // Load data collections
-        data_collections = await api.load_data_files(project_id);
-        srcdoc = dynamic_iframe_srcdoc("", broadcast_id, {
-          content: content_fields,
-          design: design_fields,
-          project_id,
-          data_collections,
-        });
-      })
-      .catch((err) => {
-        console.error("[Preview] Failed to load config:", err);
-        srcdoc = dynamic_iframe_srcdoc("", broadcast_id, { project_id });
-      });
 
     channel = new BroadcastChannel(broadcast_id);
     channel.onmessage = ({ data }) => {
@@ -82,66 +132,74 @@
       }
     };
 
-    // Subscribe to realtime updates for this project's data
-    pb.collection("_tk_projects")
-      .subscribe(project_id, (e) => {
-        // Guard against posting to closed channel after unmount
-        if (!is_mounted || !channel) return;
-        if (e.action === "update" && e.record.data) {
-          // Forward data changes to iframe
-          channel.postMessage({
-            event: "DATA_UPDATED",
-            payload: { data: e.record.data },
-          });
-        }
-      })
-      .then((unsubscribe) => {
-        realtime_unsubscribe = unsubscribe;
-      })
-      .catch((err) => {
-        console.warn("[Preview] Failed to subscribe to realtime:", err);
-      });
-
-    // Trigger initial compilation if code exists
-    if (code && (language === "html" || language === "svelte")) {
-      compile_component();
-    }
-
     return () => {
       is_mounted = false;
-      realtime_unsubscribe?.();
+      // realtime_unsubscribe?.();
       channel?.close();
     };
   });
 
-  async function compile_component() {
-    if (!code || (language !== "html" && language !== "svelte")) {
-      return;
-    }
+  // Unified update logic (shared by store and manual loading)
+  async function apply_config_update(
+    new_content: any[],
+    new_design: any[],
+    new_data_collections: string[],
+  ) {
+    // Check if fields actually changed
+    const content_changed = !_.isEqual(new_content, content_fields);
+    const design_changed = !_.isEqual(new_design, design_fields);
+    const data_changed = !_.isEqual(new_data_collections, data_collections);
+    // Design-only changes: inject CSS without reload
+    if (design_changed && !content_changed && !data_changed && srcdoc) {
+      design_fields = new_design;
+      channel?.postMessage({
+        event: "UPDATE_CSS_VARS",
+        payload: { css: generate_design_css(new_design) },
+      });
+      const fonts = extract_web_fonts(new_design);
+      if (fonts.length > 0) {
+        channel?.postMessage({
+          event: "UPDATE_FONTS",
+          payload: { fonts },
+        });
+      }
+    } else if (content_changed || data_changed || design_changed || !srcdoc) {
+      // Content or data changes require full reload - but defer if agent is working
+      if (is_processing) {
+        pending_config_update = true;
+      } else {
+        content_fields = new_content;
+        design_fields = new_design;
+        data_collections = new_data_collections;
 
-    // Track version to discard stale results
+        srcdoc = dynamic_iframe_srcdoc("", broadcast_id, {
+          content: content_fields,
+          design: design_fields,
+          project_id,
+          data_collections,
+        });
+
+        if (!active_code) return;
+        compile_component();
+      }
+    }
+  }
+
+  async function compile_component() {
     const my_version = ++compilation_version;
 
     is_compiling = true;
-    show_building = true;
     compile_error = null;
-
-    // Clear any pending hide timeout
-    if (building_timeout) {
-      clearTimeout(building_timeout);
-      building_timeout = null;
-    }
 
     try {
       const result = await processCode({
-        component: code, // Pass the raw Svelte code as a string
+        component: active_code,
         buildStatic: false,
-        dev_mode: true, // Enable dev mode for better errors and $inspect
-        sourcemap: true, // Enable sourcemaps for debugging
+        dev_mode: true,
+        sourcemap: true,
         runtime: ["mount", "unmount"],
       });
 
-      // Discard result if a newer compilation started
       if (my_version !== compilation_version) {
         return;
       }
@@ -169,10 +227,6 @@
       // Only update UI state if this is still the current compilation
       if (my_version === compilation_version) {
         is_compiling = false;
-        // Keep showing building state for minimum 300ms to avoid flicker
-        building_timeout = setTimeout(() => {
-          show_building = false;
-        }, 300);
       }
     }
   }
@@ -188,115 +242,26 @@
     });
   }
 
-  const debounced_compile = debounce(compile_component, 500);
-
-  // Watch for code changes - but wait until agent is done
-  $effect(() => {
-    if (
-      code &&
-      (language === "html" || language === "svelte") &&
-      !agent_working
-    ) {
-      debounced_compile();
-    } else if (!code && !agent_working) {
-      // Code was cleared (e.g., reset) - clear the preview
-      compiled_app = null;
-      compile_error = null;
-      channel?.postMessage({ event: "CLEAR_APP" });
-    }
-  });
+  // const debounced_compile = debounce(compile_component, 500);
 
   // When agent finishes, process any pending config updates
-  $effect(() => {
-    if (!agent_working && pending_config_update) {
-      pending_config_update = false;
-      // Trigger a config reload now that agent is done
-      window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
-    }
-  });
-
-  // Watch for content/design field changes and reload config
-  let config_reload_listener: ((e: Event) => void) | null = null;
-  onMount(() => {
-    config_reload_listener = async () => {
-      try {
-        const config = await api.load_config(project_id);
-        const new_content = config.fields || [];
-        const new_design = config.design || [];
-        const new_data_collections = await api.load_data_files(project_id);
-
-        // Check if fields actually changed
-        const content_changed =
-          JSON.stringify(new_content) !== JSON.stringify(content_fields);
-        const design_changed =
-          JSON.stringify(new_design) !== JSON.stringify(design_fields);
-        const data_changed =
-          JSON.stringify(new_data_collections) !==
-          JSON.stringify(data_collections);
-
-        // Design-only changes: inject CSS without reload
-        if (design_changed && !content_changed && !data_changed) {
-          design_fields = new_design;
-          channel?.postMessage({
-            event: "UPDATE_CSS_VARS",
-            payload: { css: generate_design_css(new_design) },
-          });
-          // Also inject any new font links
-          const fonts = extract_web_fonts(new_design);
-          if (fonts.length > 0) {
-            channel?.postMessage({
-              event: "UPDATE_FONTS",
-              payload: { fonts },
-            });
-          }
-        } else if (content_changed || data_changed) {
-          // Content or data changes require full reload - but defer if agent is working
-          if (agent_working) {
-            // Queue the update for when agent finishes
-            pending_config_update = true;
-          } else {
-            content_fields = new_content;
-            design_fields = new_design;
-            data_collections = new_data_collections;
-
-            // Update srcdoc with new field data
-            srcdoc = dynamic_iframe_srcdoc("", broadcast_id, {
-              content: content_fields,
-              design: design_fields,
-              project_id,
-              data_collections,
-            });
-
-            // Recompile to pick up new imports
-            if (code && (language === "html" || language === "svelte")) {
-              compile_component();
-            }
-          }
-        }
-      } catch (err) {
-        console.error("[Preview] Failed to reload config:", err);
-      }
-    };
-
-    // Listen for custom events from content/design panels
-    window.addEventListener("tinykit:config-updated", config_reload_listener);
-
-    return () => {
-      if (config_reload_listener) {
-        window.removeEventListener(
-          "tinykit:config-updated",
-          config_reload_listener,
-        );
-      }
-    };
-  });
+  // $effect(() => {
+  //   if (!is_processing && pending_config_update) {
+  //     pending_config_update = false;
+  //     // Trigger update
+  //     apply_config_update(
+  //       store ? store.content : content_fields,
+  //       store ? store.design : design_fields,
+  //       store ? store.data_files : data_collections,
+  //     );
+  //     // Also dispatch event for others?
+  //     window.dispatchEvent(new CustomEvent("tinykit:config-updated"));
+  //   }
+  // });
 </script>
 
-<div
-  class="preview-container"
-  class:is-building={show_building || agent_working}
->
-  {#if show_building || agent_working}
+<div class="preview-container" class:is-building={is_compiling}>
+  {#if is_compiling}
     <div class="building-border"></div>
   {/if}
   {#if compile_error}

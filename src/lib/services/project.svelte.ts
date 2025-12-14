@@ -20,7 +20,6 @@
 import { pb } from '$lib/pocketbase.svelte'
 import type {
 	Project,
-	Message,
 	DesignField,
 	ContentField,
 	Snapshot,
@@ -94,15 +93,9 @@ export const project_service = {
 			}
 		}
 
-		// If there's an initial prompt, add it as first message
-		if (params.initial_prompt) {
-			project_data.agent_chat = [
-				{
-					role: 'user',
-					content: params.initial_prompt
-				}
-			]
-		}
+		// Note: initial_prompt is NOT added to agent_chat here
+		// The server adds user messages when send_prompt is called
+		// The initial_prompt is passed to the project create endpoint to trigger the first message
 
 		return await pb.collection(COLLECTION).create<Project>(project_data)
 	},

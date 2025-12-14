@@ -131,8 +131,8 @@ Detailed in [ROADMAP.md](./ROADMAP.md):
 - Self-hosted, single-server deployment
 - No external services required
 - **Single collection storage:** All tinykit platform data in `_tk_projects`
-  - `frontend_code` - App.svelte
-  - `backend_code` - index.html
+  - `frontend_code` - App frontend code
+  - `backend_code` - App backend code (not used yet)
   - `design` - CSS variables (JSON)
   - `content` - Content fields (JSON)
   - `agent` - Conversation history (JSON)

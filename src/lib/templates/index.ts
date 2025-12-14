@@ -7,7 +7,7 @@
  * - description: short description
  * - preview: emoji or preview text
  * - tags: array of tags for filtering
- * - frontend_code: App.svelte content
+ * - frontend_code: App Svelte code file
  * - design: array of DesignField (CSS variables)
  * - content: array of ContentField (CMS values)
  * - data: collection schemas (optional)

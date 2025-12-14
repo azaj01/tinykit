@@ -10,13 +10,13 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Collapsible from "$lib/components/ui/collapsible";
   import { HelpCircle, ChevronRight, ChevronDown, LogOut } from "lucide-svelte";
-  import BuilderThemePicker from "$lib/components/BuilderThemePicker.svelte";
+  import BuilderThemePicker from "./BuilderThemePicker.svelte";
   import { auth } from "$lib/pocketbase.svelte";
   import { watch } from "runed";
 
   import { ExternalLink, Check, Loader2, Rocket } from "lucide-svelte";
 
-  import type { TabId, PreviewPosition } from "../types";
+  import type { TabId, PreviewPosition } from "../../types";
   import type { ComponentType } from "svelte";
   import { PanelLeft, PanelRight, PanelBottom } from "lucide-svelte";
 

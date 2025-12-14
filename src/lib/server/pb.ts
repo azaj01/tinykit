@@ -198,18 +198,15 @@ export async function createProject(data: {
 		}
 	}
 
-	// If there's an initial prompt, add it as first message
-	if (data.initial_prompt) {
-		project_data.agent_chat = [
-			{
-				role: 'user',
-				content: data.initial_prompt
-			}
-		]
-	}
+	// Note: initial_prompt is NOT added to agent_chat here
+	// The server adds user messages when send_prompt is called
+	// The initial_prompt is passed to the studio page to trigger the first message
 
 	return await pb.collection('_tk_projects').create(project_data)
 }
+
+// Queue updates per project to prevent race conditions (read-modify-write cycles)
+const updateQueues = new Map<string, Promise<any>>()
 
 /**
  * Update project fields
@@ -220,19 +217,26 @@ export async function updateProject(projectId: string, data: any): Promise<Proje
 		throw new Error('Server not authenticated to Pocketbase. Check POCKETBASE_ADMIN_EMAIL and POCKETBASE_ADMIN_PASSWORD env vars.')
 	}
 
-	// Guard against accidentally clearing frontend_code
-	if ('frontend_code' in data) {
-		const codeLength = data.frontend_code?.length || 0
-		if (codeLength === 0) {
-			const { frontend_code, ...rest } = data
-			if (Object.keys(rest).length > 0) {
-				return await pb.collection('_tk_projects').update(projectId, rest)
-			}
-			return null
-		}
-	}
 
-	return await pb.collection('_tk_projects').update(projectId, data)
+
+	// Queue updates for this project to prevent race conditions
+	const prev = updateQueues.get(projectId) || Promise.resolve()
+
+	const task = prev.catch(() => { }).then(async () => {
+		// Perform the actual update
+		return (await pb.collection('_tk_projects').update(projectId, data)) as unknown as Project
+	})
+
+	updateQueues.set(projectId, task)
+
+	// Clean up queue map when done to prevent memory leaks
+	task.finally(() => {
+		if (updateQueues.get(projectId) === task) {
+			updateQueues.delete(projectId)
+		}
+	})
+
+	return task
 }
 
 /**

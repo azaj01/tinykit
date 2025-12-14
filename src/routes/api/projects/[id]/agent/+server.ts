@@ -158,6 +158,13 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
 		// Build conversation history (should include initial user message)
 		const agentMessages = project.agent_chat || []
 
+		// Add the new user message to the conversation
+		agentMessages.push({
+			role: 'user',
+			content: userPrompt,
+			timestamp: Date.now()
+		})
+
 		// Add placeholder assistant message (will be updated as chunks arrive)
 		const assistantMsgIndex = agentMessages.length
 		agentMessages.push({
@@ -213,12 +220,12 @@ async function runAgentInBackground(
 	truncatedPrompt: string
 ) {
 	let fullResponse = ''
-	const toolCalls: Array<{ name: string; args?: Record<string, any>; result?: string }> = []
-	const streamItems: Array<{ type: 'text' | 'tool'; content?: string; name?: string; args?: Record<string, any>; result?: string }> = []
+	const toolCalls: Array<{ id: string; name: string; args?: Record<string, any>; result?: string }> = []
+	const streamItems: Array<{ type: 'text' | 'tool'; content?: string; id?: string; name?: string; args?: Record<string, any>; result?: string }> = []
 
 	// Throttle DB updates to avoid hammering Pocketbase
 	let lastDbUpdate = 0
-	const DB_UPDATE_INTERVAL = 300 // ms
+	const DB_UPDATE_INTERVAL = 500 // ms
 	let pendingDbUpdate = false
 
 	async function updateDb(force = false) {
@@ -266,24 +273,35 @@ async function runAgentInBackground(
 				}
 				updateDb()
 			},
-			onToolCallStart: (name) => {
-				// Add pending tool to stream_items
-				streamItems.push({ type: 'tool', name, result: undefined })
-				updateDb()
+			onToolCallStart: (id, name) => {
+				// Add pending tool to stream_items if not already present
+				const existing = streamItems.find(s => s.id === id)
+				if (!existing) {
+					streamItems.push({ type: 'tool', id, name, result: undefined })
+					updateDb()
+				}
 			},
-			onToolCall: (name, args) => {
-				toolCalls.push({ name, args })
+			onToolCall: (id, name, args) => {
+				// Check if tool call already exists (might not if we missed start)
+				const existingCall = toolCalls.find(c => c.id === id)
+				if (!existingCall) {
+					toolCalls.push({ id, name, args })
+				} else {
+					existingCall.args = args
+				}
+
 				// Update the pending tool item with args
-				const pendingTool = streamItems.find(s => s.type === 'tool' && s.name === name && !s.result)
+				const pendingTool = streamItems.find(s => s.id === id)
 				if (pendingTool) pendingTool.args = args
+				else streamItems.push({ type: 'tool', id, name, args, result: undefined })
+
 				updateDb()
 			},
-			onToolResult: (name, resultStr) => {
-				console.log('[Agent] onToolResult:', name, resultStr?.slice?.(0, 100) || resultStr)
-				const call = toolCalls.find(c => c.name === name && !c.result)
+			onToolResult: (id, name, resultStr) => {
+				const call = toolCalls.find(c => c.id === id)
 				if (call) call.result = resultStr
 				// Update the tool item with result
-				const toolItem = streamItems.find(s => s.type === 'tool' && s.name === name && !s.result)
+				const toolItem = streamItems.find(s => s.id === id)
 				if (toolItem) toolItem.result = resultStr
 				updateDb(true) // Force update on tool result
 			},

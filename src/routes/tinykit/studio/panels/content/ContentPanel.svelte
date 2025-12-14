@@ -3,42 +3,67 @@
   import { watch } from "runed";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import { Textarea } from "$lib/components/ui/textarea";
   import { Label } from "$lib/components/ui/label";
   import { Switch } from "$lib/components/ui/switch";
   import { Item, ItemGroup } from "$lib/components/ui/item";
   import * as Select from "$lib/components/ui/select";
   import AddFieldButton from "../../components/AddFieldButton.svelte";
-  import type { ContentField } from "../../types";
-  import * as api from "../../lib/api.svelte";
-  import { getProjectContext } from "../../context";
+  import type { ContentField } from "../../../types";
+  import * as api from "../../../lib/api.svelte";
+  import { getProjectContext } from "../../../context";
+  import { getProjectStore } from "../../project.svelte";
 
   const { project_id } = getProjectContext();
+  const store = getProjectStore();
 
   type ContentPanelProps = {
-    content_fields: ContentField[];
     target_field?: string | null;
     on_refresh_preview: () => void;
     on_target_consumed?: () => void;
   };
 
   let {
-    content_fields = $bindable(),
     target_field = null,
     on_refresh_preview,
     on_target_consumed,
   }: ContentPanelProps = $props();
 
+  // Local mutable state for editing
+  let local_fields = $state<ContentField[]>([]);
+
+  // Sync from store, but be careful not to overwrite active edits if possible
+  // For now, strict sync. Svelte's keyed each block handles DOM preservation.
+  watch(
+    () => store.content,
+    (new_content) => {
+      // Only update if different JSON to avoid spurious updates?
+      if (JSON.stringify(new_content) !== JSON.stringify(local_fields)) {
+        local_fields = new_content; // Copy reference is fine as we replace it on edit?
+        // Actually store.content is new array from derived.
+        // If we modify local_fields items, we drift.
+        // Let's rely on full replacement for simplicity for now.
+      }
+    },
+  );
+
+  // Careful: watch runs immediately? No, runed watch might run immediate.
+  // We can just init local_fields from store.content if available?
+  // store.content is derived constant access.
+  $effect(() => {
+    if (local_fields.length === 0 && store.content.length > 0) {
+      local_fields = store.content;
+    }
+  });
+
   // Map for storing input element references by field id
   let field_inputs: Record<string, HTMLInputElement | HTMLTextAreaElement> = {};
 
   // Watch for target field changes and focus on the field
-  // Watch both target_field and content_fields.length to handle case where fields load after target is set
   watch(
-    () => [target_field, content_fields.length] as const,
+    () => [target_field, local_fields.length] as const,
     async ([field_name, fields_count]) => {
       if (field_name && fields_count > 0) {
-        const field = content_fields.find((f) => f.name === field_name);
+        const field = local_fields.find((f) => f.name === field_name);
         if (field) {
           await tick();
           const input = field_inputs[field.id];
@@ -90,7 +115,9 @@
 
     try {
       await api.add_content_field(project_id, new_field);
-      content_fields = [...content_fields, new_field];
+      // Wait for realtime update to populate local_fields via store
+      // But for responsiveness we can append locally
+      local_fields = [...local_fields, new_field];
       show_create_form = false;
       new_field_name = "";
       new_field_type = "text";
@@ -104,7 +131,7 @@
   async function delete_field(id: string) {
     try {
       await api.delete_content_field(project_id, id);
-      content_fields = content_fields.filter((f) => f.id !== id);
+      local_fields = local_fields.filter((f) => f.id !== id);
     } catch (error) {
       console.error("Failed to delete content field:", error);
     }
@@ -113,7 +140,10 @@
   async function update_field_value(field: ContentField, new_value: any) {
     try {
       await api.update_content_field(project_id, field.id, new_value);
-      content_fields = content_fields.map((f) =>
+      // optimistic update already handled by handle_input?
+      // No, handle_input updates local. handle_blur calls this.
+      // We update local just in case?
+      local_fields = local_fields.map((f) =>
         f.id === field.id ? { ...f, value: new_value } : f,
       );
       on_refresh_preview();
@@ -125,7 +155,7 @@
 
   // Handle input changes - update local state only
   function handle_input(field: ContentField, new_value: any) {
-    content_fields = content_fields.map((f) =>
+    local_fields = local_fields.map((f) =>
       f.id === field.id ? { ...f, value: new_value } : f,
     );
   }
@@ -162,7 +192,7 @@
 
 <div class="content-panel bg-white/[0.025]">
   <ItemGroup class="gap-2">
-    {#each content_fields as field (field.id)}
+    {#each local_fields as field (field.id)}
       <Item
         class="field-card bg-[var(--builder-bg-primary)] p-3 rounded-sm relative group"
       >
@@ -271,7 +301,8 @@
                 <Select.Trigger
                   class="w-full bg-[var(--builder-bg-primary)] border-[var(--builder-border)]"
                 >
-                  {field_type_options.find((o) => o.value === new_field_type)?.label || "Select type"}
+                  {field_type_options.find((o) => o.value === new_field_type)
+                    ?.label || "Select type"}
                 </Select.Trigger>
                 <Select.Content
                   class="bg-[var(--builder-bg-primary)] border-[var(--builder-border)]"

@@ -10,20 +10,65 @@
   import { debounce } from "lodash-es";
   import { current_builder_theme } from "$lib/builder_themes";
   import { watch } from "runed";
-  import type { EditorSnapshot } from "../../routes/tinykit/types";
+
+  import { basicSetup } from "codemirror";
+  import {
+    EditorView,
+    ViewPlugin,
+    Decoration,
+    keymap,
+    type ViewUpdate,
+  } from "@codemirror/view";
+  import { EditorState, Compartment, countColumn } from "@codemirror/state";
+  import { standardKeymap, indentWithTab } from "@codemirror/commands";
+  import {
+    indentService,
+    foldedRanges,
+    foldEffect,
+    indentUnit,
+    getIndentUnit,
+    type IndentContext,
+  } from "@codemirror/language";
+  import { css } from "@codemirror/lang-css";
+
+  import * as themeModule from "./theme";
+  import * as extModule from "./extensions";
 
   let {
     value = "",
     language = "html",
     onChange = () => {},
     cache_key = "", // Key for scroll position cache (e.g., file path)
-    initial_snapshot = null as EditorSnapshot | null,
-    onSnapshotChange = (_snapshot: EditorSnapshot) => {},
     disable_mobile_focus = true, // Prevent auto-focus on mobile
   } = $props();
 
+  // Prettier modules (loaded dynamically)
+  let prettierModule: any;
+  let prettierSvelteModule: any;
+  let prettierPostcssModule: any;
+  let prettierBabelModule: any;
+  let prettierEstreeModule: any;
+
+  onMount(async () => {
+    // Dynamic imports for Prettier, complains otherwise
+    [
+      prettierModule,
+      prettierSvelteModule,
+      prettierPostcssModule,
+      prettierBabelModule,
+      prettierEstreeModule,
+    ] = await Promise.all([
+      import("prettier"),
+      import("prettier-plugin-svelte/browser"),
+      import("prettier/plugins/postcss"),
+      import("prettier/plugins/babel"),
+      import("prettier/plugins/estree"),
+    ]);
+  });
+
   // Detect mobile device
-  const is_mobile = typeof window !== "undefined" &&
+  const is_mobile =
+    typeof window !== "undefined" &&
     /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const dispatch = createEventDispatcher();
@@ -36,18 +81,13 @@
   let containerElement: HTMLDivElement;
   let wrapperElement: HTMLDivElement;
   let editorElement: HTMLDivElement;
-  let editorView: any;
+  let editorView: EditorView | undefined = undefined;
   let is_focused = $state(false);
   let mod_key_held = $state(false);
-  let theme_compartment: any;
-  let language_compartment: any;
-  let emmet_compartment: any;
-  let EditorView: any;
-  let EditorState: any;
-  let Compartment: any;
-  let foldedRanges: any;
-  let foldEffect: any;
-  let extensionsModule: any;
+
+  let theme_compartment = new Compartment();
+  let language_compartment = new Compartment();
+  let emmet_compartment = new Compartment();
 
   // Class style tooltip state
   let tooltip_visible = $state(false);
@@ -62,9 +102,9 @@
     media_query?: string;
   }> = [];
   let tooltip_editor_element: HTMLDivElement;
-  let tooltip_editor_view: any;
+  let tooltip_editor_view: EditorView | undefined = undefined;
   let tooltip_save_timeout: ReturnType<typeof setTimeout> | null = null;
-  let tooltip_theme_compartment: any;
+  let tooltip_theme_compartment: Compartment | undefined;
 
   // Helper: extract word at position
   function get_word_at_pos(
@@ -185,7 +225,7 @@
     }
     if (tooltip_editor_view) {
       tooltip_editor_view.destroy();
-      tooltip_editor_view = null;
+      tooltip_editor_view = undefined;
     }
     tooltip_visible = false;
     tooltip_editable = false;
@@ -254,7 +294,7 @@
     });
   }
 
-  function show_class_tooltip(event: MouseEvent, view: any) {
+  function show_class_tooltip(event: MouseEvent, view: EditorView) {
     const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
     if (pos === null) return;
 
@@ -267,7 +307,7 @@
     // Clean up previous tooltip if any
     if (tooltip_editor_view) {
       tooltip_editor_view.destroy();
-      tooltip_editor_view = null;
+      tooltip_editor_view = undefined;
     }
     if (tooltip_save_timeout) {
       clearTimeout(tooltip_save_timeout);
@@ -310,7 +350,7 @@
   }
 
   async function create_tooltip_editor() {
-    if (!tooltip_editor_element || !EditorView || !EditorState) return;
+    if (!tooltip_editor_element) return;
 
     // Build full CSS rules for proper syntax highlighting
     const full_css = tooltip_rules
@@ -327,33 +367,24 @@
       })
       .join("\n\n");
 
-    const [codemirror, themeModule, cssHighlight, view, state] =
-      await Promise.all([
-        import("codemirror"),
-        import("./CodeMirror/theme"),
-        import("@codemirror/lang-css"),
-        import("@codemirror/view"),
-        import("@codemirror/state"),
-      ]);
-
     const themedEditor = themeModule.create_themed_editor();
-    tooltip_theme_compartment = new state.Compartment();
+    tooltip_theme_compartment = new Compartment();
 
     // Create decorations to gray out selector lines and closing braces, indent properties
-    const selector_line_decoration = view.Decoration.line({
+    const selector_line_decoration = Decoration.line({
       class: "cm-selector-line",
     });
-    const brace_line_decoration = view.Decoration.line({
+    const brace_line_decoration = Decoration.line({
       class: "cm-brace-line",
     });
-    const property_line_decoration = view.Decoration.line({
+    const property_line_decoration = Decoration.line({
       class: "cm-property-line",
     });
-    const media_query_decoration = view.Decoration.line({
+    const media_query_decoration = Decoration.line({
       class: "cm-media-query-line",
     });
 
-    function create_wrapper_decorations(v: any) {
+    function create_wrapper_decorations(v: EditorView) {
       const decorations: any[] = [];
       const doc = v.state.doc;
       let in_rule = false;
@@ -382,16 +413,16 @@
         }
       }
 
-      return view.Decoration.set(decorations);
+      return Decoration.set(decorations);
     }
 
-    const wrapper_highlight = view.ViewPlugin.fromClass(
+    const wrapper_highlight = ViewPlugin.fromClass(
       class {
         decorations: any;
-        constructor(v: any) {
+        constructor(v: EditorView) {
           this.decorations = create_wrapper_decorations(v);
         }
-        update(update: any) {
+        update(update: ViewUpdate) {
           if (update.docChanged) {
             this.decorations = create_wrapper_decorations(update.view);
           }
@@ -404,8 +435,8 @@
       state: EditorState.create({
         doc: full_css,
         extensions: [
-          codemirror.basicSetup,
-          cssHighlight.css(),
+          basicSetup,
+          css(),
           tooltip_theme_compartment.of(themedEditor),
           wrapper_highlight,
           EditorView.theme({
@@ -436,16 +467,6 @@
     });
   }
 
-  function save_tooltip_styles() {
-    // Flush any pending save
-    if (tooltip_save_timeout) {
-      clearTimeout(tooltip_save_timeout);
-      tooltip_save_timeout = null;
-    }
-    save_tooltip_styles_silent();
-    hide_tooltip();
-  }
-
   // Capture scroll position from wrapper element
   function capture_scroll() {
     if (!wrapperElement || !cache_key) return;
@@ -453,11 +474,11 @@
   }
 
   // Capture folded ranges
-  function capture_folds(foldedRanges: any) {
-    if (!editorView || !cache_key || !foldedRanges) return;
+  function capture_folds(foldedRangesExt: typeof foldedRanges) {
+    if (!editorView || !cache_key) return;
     const folds: Array<{ from: number; to: number }> = [];
     try {
-      const ranges = foldedRanges(editorView.state);
+      const ranges = foldedRangesExt(editorView.state);
       const iter = ranges.iter();
       while (iter.value) {
         folds.push({ from: iter.from, to: iter.to });
@@ -470,15 +491,15 @@
   }
 
   // Restore folded ranges
-  function restore_folds(foldEffect: any) {
-    if (!editorView || !cache_key || !foldEffect) return;
+  function restore_folds(foldEffectExt: typeof foldEffect) {
+    if (!editorView || !cache_key) return;
     const folds = folds_cache.get(cache_key);
     if (!folds || folds.length === 0) return;
     try {
       const doc_length = editorView.state.doc.length;
       const effects = folds
         .filter((r) => r.from < doc_length && r.to <= doc_length)
-        .map((r) => foldEffect.of({ from: r.from, to: r.to }));
+        .map((r) => foldEffectExt.of({ from: r.from, to: r.to }));
       if (effects.length > 0) {
         editorView.dispatch({ effects });
       }
@@ -488,81 +509,12 @@
   }
 
   onMount(async () => {
-    // Dynamic imports to avoid SSR issues
-    const [
-      codemirror,
-      state,
-      view,
-      commands,
-      themeModule,
-      extModule,
-      prettierModule,
-      prettierSvelteModule,
-      prettierPostcssModule,
-      prettierBabelModule,
-      prettierEstreeModule,
-      languageModule,
-    ] = await Promise.all([
-      import("codemirror"),
-      import("@codemirror/state"),
-      import("@codemirror/view"),
-      import("@codemirror/commands"),
-      import("./CodeMirror/theme"),
-      import("./CodeMirror/extensions"),
-      import("prettier"),
-      import("prettier-plugin-svelte/browser"),
-      import("prettier/plugins/postcss"),
-      import("prettier/plugins/babel"),
-      import("prettier/plugins/estree"),
-      import("@codemirror/language"),
-    ]);
-
-    const { indentUnit, indentService, getIndentUnit } = languageModule;
-    const { countColumn } = state;
-
-    // Fallback indent service that provides smart indentation when language doesn't
-    const fallbackIndent = indentService.of((context, pos) => {
-      const prevLine = context.lineAt(pos, -1);
-      if (!prevLine) return 0;
-
-      const match = prevLine.text.match(/^(\s*)/);
-      const leadingWS = match ? match[1] : "";
-      // Use countColumn to properly handle tabs (converts to column position)
-      const tabSize = context.state.tabSize;
-      const baseIndent = countColumn(leadingWS, tabSize);
-      const trimmed = prevLine.text.trim();
-
-      // Increase indent after lines ending with opening braces/brackets or HTML tags
-      if (
-        trimmed.endsWith("{") ||
-        trimmed.endsWith("(") ||
-        trimmed.endsWith("[") ||
-        (trimmed.startsWith("<") &&
-          !trimmed.startsWith("</") &&
-          !trimmed.endsWith("/>"))
-      ) {
-        return baseIndent + getIndentUnit(context.state);
-      }
-
-      return baseIndent;
-    });
-
-    EditorView = codemirror.EditorView;
-    EditorState = state.EditorState;
-    Compartment = state.Compartment;
-    foldedRanges = languageModule.foldedRanges;
-    foldEffect = languageModule.foldEffect;
-    extensionsModule = extModule;
-    theme_compartment = new Compartment();
-    language_compartment = new Compartment();
-    emmet_compartment = new Compartment();
-
     const languageExtension = extModule.getLanguage(language);
     const emmetExtensions = extModule.getEmmetExtensions(language);
     const themedEditor = themeModule.create_themed_editor();
 
     const detectModKey = EditorView.domEventHandlers({
-      keydown(event: any, view: any) {
+      keydown(event: any, view: EditorView) {
         if (event.metaKey || event.ctrlKey) {
           requestAnimationFrame(() => {
             mod_key_held = true;
@@ -571,7 +523,7 @@
         }
         return false;
       },
-      keyup(event: any, view: any) {
+      keyup(event: any, view: EditorView) {
         if (!event.metaKey && !event.ctrlKey) {
           requestAnimationFrame(() => {
             mod_key_held = false;
@@ -580,19 +532,19 @@
         }
         return false;
       },
-      focus(event: any, view: any) {
+      focus(event: any, view: EditorView) {
         requestAnimationFrame(() => {
           is_focused = true;
         });
         return false;
       },
-      blur(event: any, view: any) {
+      blur(event: any, view: EditorView) {
         requestAnimationFrame(() => {
           is_focused = false;
         });
         return false;
       },
-      contextmenu(event: any, view: any) {
+      contextmenu(event: MouseEvent, view: EditorView) {
         // Check if we're on a class name before preventing default
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         if (pos !== null) {
@@ -606,7 +558,7 @@
         }
         return false;
       },
-      click(event: any, view: any) {
+      click(event: any, view: EditorView) {
         hide_tooltip();
         return false;
       },
@@ -616,8 +568,9 @@
       code: string,
       position: number,
     ): Promise<{ formatted: string; cursorOffset: number } | undefined> {
+      if (!prettierModule) return undefined;
       try {
-        const result = await prettierModule.default.formatWithCursor(code, {
+        const result = await prettierModule.formatWithCursor(code, {
           parser: "svelte",
           bracketSameLine: true,
           useTabs: true,
@@ -641,24 +594,16 @@
       extensions: [
         indentUnit.of("\t"),
         EditorState.tabSize.of(2),
-        fallbackIndent,
         language_compartment.of(languageExtension),
         emmet_compartment.of(emmetExtensions),
         theme_compartment.of(themedEditor),
-        view.keymap.of([
-          ...commands.standardKeymap,
-          commands.indentWithTab,
+        keymap.of([
+          ...standardKeymap,
+          indentWithTab,
           {
             key: "Escape",
             run: () => {
-              editorView.contentDOM.blur();
-              return true;
-            },
-          },
-          {
-            key: "mod-s",
-            run: () => {
-              dispatch("save");
+              editorView?.contentDOM.blur();
               return true;
             },
           },
@@ -789,7 +734,7 @@
           },
         ]),
         detectModKey,
-        EditorView.updateListener.of((update: any) => {
+        EditorView.updateListener.of((update: ViewUpdate) => {
           if (update.docChanged) {
             const newValue = update.state.doc.toString();
             // Track that this value came from the editor itself
@@ -797,7 +742,7 @@
             debounced_onChange(newValue);
           }
         }),
-        codemirror.basicSetup,
+        basicSetup,
         EditorView.theme({
           "&": {
             height: "100%",
@@ -905,10 +850,9 @@
   watch(
     () => language,
     () => {
-      if (editorView && language_compartment && extensionsModule) {
-        const newLangExtension = extensionsModule.getLanguage(language);
-        const newEmmetExtensions =
-          extensionsModule.getEmmetExtensions(language);
+      if (editorView && language_compartment && extModule) {
+        const newLangExtension = extModule.getLanguage(language);
+        const newEmmetExtensions = extModule.getEmmetExtensions(language);
 
         editorView.dispatch({
           effects: [
@@ -924,24 +868,21 @@
   watch(
     () => $current_builder_theme,
     () => {
-      (async () => {
-        const themeModule = await import("./CodeMirror/theme");
-        const themedEditor = themeModule.create_themed_editor();
+      const themedEditor = themeModule.create_themed_editor();
 
-        // Update main editor
-        if (editorView && theme_compartment) {
-          editorView.dispatch({
-            effects: theme_compartment.reconfigure(themedEditor),
-          });
-        }
+      // Update main editor
+      if (editorView && theme_compartment) {
+        editorView.dispatch({
+          effects: theme_compartment.reconfigure(themedEditor),
+        });
+      }
 
-        // Update tooltip editor if open
-        if (tooltip_editor_view && tooltip_theme_compartment) {
-          tooltip_editor_view.dispatch({
-            effects: tooltip_theme_compartment.reconfigure(themedEditor),
-          });
-        }
-      })();
+      // Update tooltip editor if open
+      if (tooltip_editor_view && tooltip_theme_compartment) {
+        tooltip_editor_view.dispatch({
+          effects: tooltip_theme_compartment.reconfigure(themedEditor),
+        });
+      }
     },
   );
 </script>

@@ -84,7 +84,7 @@
     if (typeof window !== "undefined") {
       localStorage.setItem(
         "lobby-wordle-colorblind",
-        colorblindMode.toString()
+        colorblindMode.toString(),
       );
     }
   }
@@ -149,7 +149,7 @@
         gameOver,
         won,
         message,
-      })
+      }),
     );
 
     localStorage.setItem(
@@ -157,7 +157,7 @@
       JSON.stringify({
         totalWins,
         currentStreak,
-      })
+      }),
     );
   }
 
@@ -301,7 +301,7 @@
           {@const state = guess ? guess[colIndex].state : "empty"}
           <div
             class="w-14 h-14 flex items-center justify-center font-sans text-2xl font-bold text-white {getCellColor(
-              state
+              state,
             )} transition-colors"
           >
             {letter}
@@ -334,7 +334,7 @@
     <div class="text-gray-500 text-sm font-sans text-center space-y-1">
       <p>Guess the 5-letter tech word</p>
       <p class="text-xs text-gray-600">Type and press ENTER</p>
-      <p class="text-xs text-gray-600">One puzzle per day • Progress saved</p>
+      <p class="text-xs text-gray-600">Progress saved</p>
     </div>
   {/if}
 

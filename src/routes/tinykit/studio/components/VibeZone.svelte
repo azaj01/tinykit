@@ -98,7 +98,9 @@
         title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
       >
         <Icon
-          icon="heroicons:arrows-pointing-out-20-solid"
+          icon={isFullscreen
+            ? "heroicons:arrows-pointing-in-20-solid"
+            : "heroicons:arrows-pointing-out-20-solid"}
           class="w-3.5 h-3.5"
         />
       </button>

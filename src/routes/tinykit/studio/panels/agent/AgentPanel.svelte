@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { Button } from "$lib/components/ui/button";
-  import TokenCost from "../../components/TokenCost.svelte";
+  import TokenCost from "../../../components/TokenCost.svelte";
   import { emoji_to_icon } from "./emojis";
   import {
     FileText,
@@ -19,18 +19,20 @@
     PreviewError,
     TokenUsage,
     PendingPrompt,
-  } from "../../types";
+  } from "../../../types";
   import {
     send_prompt,
     clear_conversation,
     load_spec,
-  } from "../../lib/api.svelte";
+  } from "../../../lib/api.svelte";
   import { marked } from "marked";
   import { current_builder_theme } from "$lib/builder_themes";
-  import { getProjectContext } from "../../context";
+  import { getProjectContext } from "../../../context";
+  import { getProjectStore } from "../../project.svelte";
 
   // Get project_id from context instead of props
   const { project_id } = getProjectContext();
+  const store = getProjectStore();
 
   // Configure marked
   marked.setOptions({
@@ -87,38 +89,37 @@
   );
 
   type AgentPanelProps = {
-    messages: AgentMessage[];
-    is_processing: boolean;
-    is_loading_messages: boolean;
-    vibe_zone_enabled: boolean;
     vibe_zone_visible: boolean;
     vibe_user_prompt: string;
     preview_errors: PreviewError[];
     pending_prompt: PendingPrompt | null;
     on_navigate_to_field: (tab: string, field_name?: string) => void;
-    on_file_select: (path: string) => void;
-    on_load_data_files: () => Promise<void>;
-    on_load_config: () => Promise<void>;
     on_pending_prompt_consumed: () => void;
     on_loading_change?: (loading: boolean) => void;
   };
 
   let {
-    messages = $bindable(),
-    is_processing,
-    is_loading_messages,
-    vibe_zone_enabled,
     vibe_zone_visible = $bindable(),
     vibe_user_prompt = $bindable(),
     preview_errors = $bindable(),
     pending_prompt = null,
     on_navigate_to_field,
-    on_file_select,
-    on_load_data_files,
-    on_load_config,
     on_pending_prompt_consumed,
     on_loading_change,
   }: AgentPanelProps = $props();
+
+  // Derive vibe_zone_enabled from store
+  let vibe_zone_enabled = $derived(
+    store.project?.settings?.vibe_zone_enabled ?? true,
+  );
+
+  // Callbacks replaced by store methods
+  const on_refresh_data = async () => {
+    // Trigger store refresh which updates all data
+    await store.refresh();
+    // Also maybe need a specific reload for files? store.data_files is derived from project.data.
+    // So project refresh is enough.
+  };
 
   let agent_input = $state("");
   let message_container: HTMLDivElement;
@@ -127,6 +128,14 @@
 
   // Local sending state - triggers immediately on send, before realtime updates
   let is_sending = $state(false);
+
+  // Store derived state
+  let is_processing = $derived(store.is_processing);
+  let is_loading_messages = $derived(store.loading);
+  let store_messages = $derived(store.messages);
+  let local_errors = $state<AgentMessage[]>([]);
+  let messages = $derived([...store_messages, ...local_errors]);
+
   // Combined loading state for UI - shows bar immediately
   let show_loading = $derived(is_sending || is_processing);
 
@@ -291,12 +300,10 @@
       // Fire-and-forget: send prompt to server
       // Server will run agent in background and stream updates to DB
       // Client receives updates via Pocketbase realtime subscription
+      // Send just the prompt - server handles adding to conversation history
       const response = await send_prompt(
         project_id,
-        [
-          ...messages.slice(0, -1),
-          { role: "user", content: api_prompt + errors_context },
-        ],
+        api_prompt + errors_context,
         spec,
       );
 
@@ -319,9 +326,9 @@
         error instanceof Error ? error.message : String(error);
       // Reset local sending state on error
       is_sending = false;
-      // Show error in chat
-      messages = [
-        ...messages,
+      // Show error in chat via local state
+      local_errors = [
+        ...local_errors,
         {
           role: "assistant",
           content: `Error: ${error_message}`,
@@ -356,7 +363,7 @@
 
   async function clear_messages() {
     if (confirm("Clear all messages?")) {
-      messages = [];
+      local_errors = [];
       try {
         await clear_conversation(project_id);
       } catch (error) {
@@ -484,7 +491,7 @@
                         {:else if tool_name === "create_content_field"}
                           <button
                             onclick={() => {
-                              on_load_config();
+                              store.refresh();
                               on_navigate_to_field(
                                 "content",
                                 field_name || undefined,
@@ -498,7 +505,7 @@
                         {:else if tool_name === "create_design_field"}
                           <button
                             onclick={() => {
-                              on_load_config();
+                              store.refresh();
                               on_navigate_to_field(
                                 "design",
                                 field_name || undefined,
@@ -516,7 +523,7 @@
                                 "data",
                                 field_name || undefined,
                               );
-                              on_load_data_files();
+                              store.refresh();
                             }}
                             class="tool-button tool-button--data tool-button--interactive"
                           >
@@ -526,8 +533,7 @@
                         {:else if tool_name === "write_code"}
                           <button
                             onclick={() => {
-                              // Reload code file and navigate to code tab
-                              on_file_select(`${project_id}/src/App.svelte`);
+                              // Navigate to code tab
                               on_navigate_to_field("code");
                             }}
                             class="tool-button tool-button--code tool-button--interactive"

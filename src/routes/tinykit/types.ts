@@ -71,17 +71,7 @@ export type FileTreeItem = {
 
 export type EditorLanguage = "javascript" | "typescript" | "html" | "css" | "json" | "markdown" | "svelte"
 
-// Config types
-export type ConfigSubTab = "env" | "endpoints"
 
-export type ApiEndpoint = {
-	id: string
-	name: string
-	url: string
-	method: string
-	headers: Record<string, string>
-	proxy?: boolean
-}
 
 // Content field types
 export type ContentField = {
@@ -121,6 +111,7 @@ export type CollectionSchema = {
 	name: string
 	schema: Array<{ name: string; type: string }>
 	records?: Array<Record<string, any>>
+	icon?: string
 }
 
 // History/Snapshot types

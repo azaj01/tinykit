@@ -97,7 +97,7 @@ export async function restore_from_snapshot_data(
 	await update_project(project_id, update_data)
 }
 
-// Code API - tinykit stores code in project.frontend_code (App.svelte)
+// Code API - tinykit stores code in project.frontend_code
 export async function read_code(project_id: string): Promise<string> {
 	const project = await get_project(project_id)
 	return project.frontend_code || ''
@@ -110,15 +110,15 @@ export async function write_code(project_id: string, content: string): Promise<v
 
 // Agent/Chat API
 // Note: The actual LLM call still goes through the server endpoint (for API key security)
-// This just manages the chat history storage
+// The server manages conversation history - client just sends the prompt
 export async function send_prompt(
 	project_id: string,
-	messages: AgentMessage[],
+	prompt: string,
 	spec_content?: string
 ): Promise<Response> {
 	// The agent endpoint still needs to be server-side for LLM API keys
 	const body: any = {
-		messages,
+		prompt,
 		stream: true
 	}
 	if (spec_content) {

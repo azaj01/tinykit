@@ -9,12 +9,14 @@
   import { Label } from "$lib/components/ui/label";
   import * as Select from "$lib/components/ui/select";
   import * as Dialog from "$lib/components/ui/dialog";
-  import type { DataRecord } from "../../types";
-  import * as api from "../../lib/api.svelte";
-  import { getProjectContext } from "../../context";
+  import type { DataRecord } from "../../../types";
+  import * as api from "../../../lib/api.svelte";
+  import { getProjectContext } from "../../../context";
   import { pb } from "$lib/pocketbase.svelte";
+  import { getProjectStore } from "../../project.svelte";
 
   const { project_id } = getProjectContext();
+  const store = getProjectStore();
 
   // Subscribe to realtime updates for data changes
   let realtime_unsubscribe: (() => void) | null = null;
@@ -63,23 +65,23 @@
   type CollectionData = {
     schema: ColumnSchema[];
     records: DataRecord[];
+    icon?: string;
   };
 
   type DataPanelProps = {
-    data_files: string[];
-    table_icons: Record<string, string>;
     target_field?: string | null;
     on_refresh_preview: () => void;
     on_target_consumed?: () => void;
   };
 
   let {
-    data_files,
-    table_icons,
     target_field = null,
     on_refresh_preview,
     on_target_consumed,
   }: DataPanelProps = $props();
+
+  let data_files = $derived(store.data_files);
+  let table_icons = $derived(store.table_icons);
 
   // Watch for target_field changes to auto-select collection
   watch(
@@ -108,6 +110,7 @@
   let show_create_collection = $state(false);
   let show_edit_collection = $state(false);
   let new_collection_name = $state("");
+  let new_collection_icon = $state("");
   let new_columns = $state<ColumnSchema[]>([{ name: "id", type: "text" }]);
 
   // Sanitize collection name as user types
@@ -173,9 +176,10 @@
         typeof raw_data === "object" &&
         !Array.isArray(raw_data)
       ) {
-        // New format: { schema, records }
+        // New format: { schema, records, icon }
         let schema = raw_data.schema || [];
         const records = raw_data.records || [];
+        const icon = raw_data.icon;
 
         // If schema is missing/empty but we have records, infer schema
         if (schema.length === 0 && records.length > 0) {
@@ -185,6 +189,7 @@
         file_content = {
           schema: sort_columns(schema),
           records,
+          icon,
         };
       } else if (Array.isArray(raw_data)) {
         // Legacy format: just an array of records
@@ -229,6 +234,7 @@
     const updated: CollectionData = {
       schema: file_content.schema,
       records: [...file_content.records, new_record],
+      icon: file_content.icon,
     };
     await save_collection(updated);
     show_add_form = false;
@@ -254,6 +260,7 @@
     const updated: CollectionData = {
       schema: file_content.schema,
       records: new_records,
+      icon: file_content.icon,
     };
     await save_collection(updated);
     editing_record_index = null;
@@ -274,6 +281,7 @@
     const updated: CollectionData = {
       schema: file_content.schema,
       records: new_records,
+      icon: file_content.icon,
     };
     await save_collection(updated);
   }
@@ -300,8 +308,8 @@
 
   async function refresh_data_files() {
     try {
-      const files = await api.load_data_files(project_id);
-      data_files = files;
+      // Refreshing the store updates the derived data_files
+      await store.refresh();
     } catch (error) {
       console.error("Failed to refresh data files:", error);
     }
@@ -317,10 +325,11 @@
         .filter((col) => col.name.trim())
         .map((col) => ({ name: col.name.trim(), type: col.type }));
 
-      // Create collection with schema and empty records
+      // Create collection with schema, empty records, and icon
       const collection_data: CollectionData = {
         schema: sort_columns(schema),
         records: [],
+        icon: new_collection_icon.trim() || undefined,
       };
 
       await api.write_data_file(project_id, collection_id, collection_data);
@@ -328,6 +337,7 @@
 
       show_create_collection = false;
       new_collection_name = "";
+      new_collection_icon = "";
       new_columns = [{ name: "id", type: "text" }];
 
       // Auto-select the new collection
@@ -344,6 +354,7 @@
     show_create_collection = false;
     show_edit_collection = false;
     new_collection_name = "";
+    new_collection_icon = "";
     new_columns = [{ name: "id", type: "text" }];
   }
 
@@ -365,8 +376,9 @@
 
   function start_edit_collection() {
     if (!selected_file || !file_content) return;
-    // Load current schema, sorted with id first
+    // Load current schema, sorted with id first, and icon
     new_columns = sort_columns([...file_content.schema]);
+    new_collection_icon = file_content.icon || "";
     show_edit_collection = true;
   }
 
@@ -412,11 +424,13 @@
       const updated: CollectionData = {
         schema: sort_columns(new_schema),
         records: new_records,
+        icon: new_collection_icon.trim() || undefined,
       };
 
       await save_collection(updated);
       show_edit_collection = false;
       new_columns = [{ name: "id", type: "text" }];
+      new_collection_icon = "";
     } catch (error) {
       console.error("Failed to edit collection:", error);
     }
@@ -713,6 +727,26 @@
           />
         </div>
 
+        <div class="flex flex-col gap-1.5">
+          <Label for="collection-icon">Icon</Label>
+          <div class="flex gap-2">
+            <div
+              class="w-10 h-10 border border-[var(--builder-border)] rounded flex items-center justify-center bg-[var(--builder-bg-primary)]"
+            >
+              <Icon
+                icon={new_collection_icon || "mdi:database"}
+                class="w-5 h-5 text-[var(--builder-text-primary)]"
+              />
+            </div>
+            <Input
+              id="collection-icon"
+              bind:value={new_collection_icon}
+              placeholder="e.g., mdi:users (optional)"
+              class="flex-1"
+            />
+          </div>
+        </div>
+
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between">
             <Label>Columns</Label>
@@ -803,6 +837,26 @@
         }}
         class="flex flex-col gap-4 py-4"
       >
+        <div class="flex flex-col gap-1.5 mb-2">
+          <Label for="edit-collection-icon">Icon</Label>
+          <div class="flex gap-2">
+            <div
+              class="w-10 h-10 border border-[var(--builder-border)] rounded flex items-center justify-center bg-[var(--builder-bg-primary)]"
+            >
+              <Icon
+                icon={new_collection_icon || "mdi:database"}
+                class="w-5 h-5 text-[var(--builder-text-primary)]"
+              />
+            </div>
+            <Input
+              id="edit-collection-icon"
+              bind:value={new_collection_icon}
+              placeholder="e.g., mdi:users (optional)"
+              class="flex-1"
+            />
+          </div>
+        </div>
+
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between">
             <Label>Columns</Label>

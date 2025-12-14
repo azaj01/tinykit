@@ -220,7 +220,7 @@
 			</div>
 		</div>
 	{:else if artwork}
-		<div class="flex-1 flex flex-col md:flex-row flex-wrap overflow-hidden">
+		<div class="flex-1 flex flex-col md:flex-row flex-wrap overflow-scroll">
 			<!-- Image -->
 			<div
 				class="flex-1 flex items-center justify-center p-8 bg-[#0d0d0d]"
@@ -233,7 +233,7 @@
 			</div>
 
 			<!-- Info -->
-			<div class="w-full md:w-96 p-8 overflow-y-auto">
+			<div class="w-full md:w-96 p-8">
 				<h2 class="text-2xl font-bold mb-2">{artwork.title}</h2>
 				<p class="text-xl text-gray-300 mb-1">{artwork.artist}</p>
 				{#if artwork.artistBio}

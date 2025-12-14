@@ -21,9 +21,9 @@ export interface AgentMessage {
 
 export interface StreamCallbacks {
 	onText?: (text: string) => void
-	onToolCallStart?: (toolName: string) => void
-	onToolCall?: (toolName: string, args: Record<string, any>) => void
-	onToolResult?: (toolName: string, result: string) => void
+	onToolCallStart?: (toolCallId: string, toolName: string) => void
+	onToolCall?: (toolCallId: string, toolName: string, args: Record<string, any>) => void
+	onToolResult?: (toolCallId: string, toolName: string, result: string) => void
 	onError?: (error: Error) => void
 }
 
@@ -58,7 +58,7 @@ WRONG: Showing \`\`\`json {...}\`\`\` ❌
 RIGHT: Brief text → then tools ✅
 
 ## Architecture
-- Single Svelte 5 file (App.svelte) with standard CSS in <style>
+- Single Svelte 5 file with standard CSS in <style>
 - NO Tailwind/utility classes - use semantic class names (.card, .button)
 - Data via \`import data from '$data'\` with realtime subscriptions
 - Content via \`import content from '$content'\` for editable text
@@ -134,7 +134,7 @@ const rss = await proxy.text('https://hnrss.org/frontpage')
 
 ## Workflow
 1. Start with numbered plan (3-5 items as shown above)
-2. Call write_code tool to save App.svelte
+2. Call write_code tool to save Svelte code
 3. IMMEDIATELY after write_code, create design fields for colors/fonts/radii and content fields for text
 
 ## Design Fields
@@ -188,9 +188,9 @@ function get_model(config: AgentConfig) {
 function create_tools(project_id: string) {
 	return {
 		write_code: tool({
-			description: 'Write code to App.svelte. Use this to create or update the application code.',
+			description: 'Write client-side code. Use this to create or update the application code.',
 			inputSchema: z.object({
-				code: z.string().describe('The complete Svelte 5 component code to write to App.svelte')
+				code: z.string().describe('The complete Svelte 5 application code file')
 			}),
 			execute: async ({ code }: { code: string }) => {
 				// Post-process: fix common syntax errors
@@ -204,11 +204,12 @@ function create_tools(project_id: string) {
 					// Fix {/#key} → {/key}
 					.replace(/\{\/\#key\}/g, '{/key}')
 
+				console.log('TOOL - WRITE_CODE')
 				// Note: onToolCall is triggered by stream events, not here (avoids duplicates)
 				await updateProject(project_id, { frontend_code: cleaned_code })
 
 				const fixes = code !== cleaned_code ? ' (auto-fixed syntax errors)' : ''
-				return `Wrote code to App.svelte (${cleaned_code.length} chars)${fixes}`
+				return `Wrote application code (${cleaned_code.length} chars)${fixes}`
 			}
 		}),
 
@@ -415,7 +416,7 @@ export async function run_agent(
 
 	let context = ''
 	if (current_code.trim()) {
-		context += `## Current App.svelte\n\`\`\`svelte\n${current_code}\n\`\`\`\n\n`
+		context += `## Current application code\n\`\`\`svelte\n${current_code}\n\`\`\`\n\n`
 	}
 	if (existing_design.length > 0) {
 		context += `## Existing Design Fields (do not recreate)\n${existing_design.map((f: any) => `- ${f.name} (${f.css_var}): ${f.value}`).join('\n')}\n\n`
@@ -462,8 +463,9 @@ export async function run_agent(
 			callbacks?.onText?.(part.text)
 		} else if (part.type === 'tool-input-start') {
 			// Tool input streaming is starting
-			console.log('[SDK tool-input-start] toolName:', (part as any).toolName)
-			callbacks?.onToolCallStart?.((part as any).toolName)
+			const inputStart = part as any
+			console.log('[SDK tool-input-start] toolName:', inputStart.toolName, 'id:', inputStart.toolCallId)
+			callbacks?.onToolCallStart?.(inputStart.toolCallId, inputStart.toolName)
 		} else if (part.type === 'tool-call') {
 			console.log('[SDK tool-call] toolName:', part.toolName, 'toolCallId:', (part as any).toolCallId)
 			// Dedupe tool calls by toolCallId
@@ -471,7 +473,7 @@ export async function run_agent(
 			if (toolCallId && seen_tool_calls.has(toolCallId)) continue
 			if (toolCallId) seen_tool_calls.add(toolCallId)
 
-			callbacks?.onToolCall?.(part.toolName, (part as any).input || {})
+			callbacks?.onToolCall?.(toolCallId, part.toolName, (part as any).input || {})
 		} else if (part.type === 'tool-result') {
 			// AI SDK stores tool results in 'output', not 'result'
 			const resultValue = (part as any).output
@@ -479,8 +481,9 @@ export async function run_agent(
 				console.log('[SDK tool-result] SKIPPING - output is undefined')
 				continue
 			}
+			const toolCallId = (part as any).toolCallId
 			console.log('[SDK tool-result] Sending to client:', part.toolName, String(resultValue).slice(0, 100))
-			callbacks?.onToolResult?.(part.toolName, String(resultValue))
+			callbacks?.onToolResult?.(toolCallId, part.toolName, String(resultValue))
 		} else if (part.type === 'finish') {
 			// Stream finished - log finish reason
 			const finishReason = (part as any).finishReason
@@ -517,10 +520,10 @@ export function create_stream_response(
 					onText: (text) => {
 						controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk: text })}\n\n`))
 					},
-					onToolCall: (name, args) => {
+					onToolCall: (id, name, args) => {
 						controller.enqueue(encoder.encode(`data: ${JSON.stringify({ toolCall: { name, args } })}\n\n`))
 					},
-					onToolResult: (name, result) => {
+					onToolResult: (id, name, result) => {
 						controller.enqueue(encoder.encode(`data: ${JSON.stringify({ toolResult: { name, result } })}\n\n`))
 					},
 					onError: (error) => {
