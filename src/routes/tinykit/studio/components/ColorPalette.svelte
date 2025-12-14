@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { generate_smart_palette } from "$lib/utils/color-utils"
+	import * as Popover from "$lib/components/ui/popover"
 
 	type Props = {
 		value: string
@@ -12,7 +13,7 @@
 	let { value = $bindable(), label = "", compact = false, theme_colors = [], onchange }: Props = $props()
 
 	let expanded = $state(false)
-	let show_picker = $state(false)
+	let picker_open = $state(false)
 
 	// Generate palette from theme colors only (stays 100% stable as you pick)
 	let palette = $derived(generate_smart_palette(theme_colors, 24))
@@ -21,7 +22,7 @@
 
 	function select(color: string) {
 		value = color
-		show_picker = false
+		picker_open = false
 		if (compact) expanded = false
 		onchange(color)
 	}
@@ -41,20 +42,6 @@
 		value = input.value
 		onchange(input.value)
 	}
-
-	function handle_click_outside(event: MouseEvent) {
-		const target = event.target as HTMLElement
-		if (!target.closest('.custom-wrapper')) {
-			show_picker = false
-		}
-	}
-
-	$effect(() => {
-		if (show_picker) {
-			document.addEventListener('click', handle_click_outside)
-			return () => document.removeEventListener('click', handle_click_outside)
-		}
-	})
 </script>
 
 {#if compact}
@@ -99,13 +86,10 @@
 					{/each}
 
 					<!-- Custom button with native color picker -->
-					<div class="custom-wrapper">
-						<button
-							type="button"
-							class="swatch custom"
-							class:selected={is_custom || show_picker}
-							style:background-color={is_custom ? value : "transparent"}
-							onclick={() => (show_picker = !show_picker)}
+					<Popover.Root bind:open={picker_open}>
+						<Popover.Trigger
+							class="swatch custom {is_custom || picker_open ? 'selected' : ''}"
+							style="background-color: {is_custom ? value : 'transparent'}"
 							title="Custom color"
 							aria-label="Pick custom color"
 						>
@@ -114,27 +98,23 @@
 									<path d="M12 5v14M5 12h14" />
 								</svg>
 							{/if}
-						</button>
-
-						{#if show_picker}
-							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-							<div class="picker-popup" onclick={(e) => e.stopPropagation()}>
-								<input
-									type="color"
-									class="native-color-picker"
-									value={value}
-									oninput={handle_native_picker}
-								/>
-								<input
-									type="text"
-									class="hex-input"
-									value={value}
-									onchange={handle_hex_input}
-									placeholder="#000000"
-								/>
-							</div>
-						{/if}
-					</div>
+						</Popover.Trigger>
+						<Popover.Content class="picker-popup" side="top" align="end" sideOffset={8}>
+							<input
+								type="color"
+								class="native-color-picker"
+								value={value}
+								oninput={handle_native_picker}
+							/>
+							<input
+								type="text"
+								class="hex-input"
+								value={value}
+								onchange={handle_hex_input}
+								placeholder="#000000"
+							/>
+						</Popover.Content>
+					</Popover.Root>
 				</div>
 			</div>
 		{/if}
@@ -161,13 +141,10 @@
 			{/each}
 
 			<!-- Custom button with native color picker -->
-			<div class="custom-wrapper">
-				<button
-					type="button"
-					class="swatch custom"
-					class:selected={is_custom || show_picker}
-					style:background-color={is_custom ? value : "transparent"}
-					onclick={() => (show_picker = !show_picker)}
+			<Popover.Root bind:open={picker_open}>
+				<Popover.Trigger
+					class="swatch custom {is_custom || picker_open ? 'selected' : ''}"
+					style="background-color: {is_custom ? value : 'transparent'}"
 					title="Custom color"
 					aria-label="Pick custom color"
 				>
@@ -176,27 +153,23 @@
 							<path d="M12 5v14M5 12h14" />
 						</svg>
 					{/if}
-				</button>
-
-				{#if show_picker}
-					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-					<div class="picker-popup" onclick={(e) => e.stopPropagation()}>
-						<input
-							type="color"
-							class="native-color-picker"
-							value={value}
-							oninput={handle_native_picker}
-						/>
-						<input
-							type="text"
-							class="hex-input"
-							value={value}
-							onchange={handle_hex_input}
-							placeholder="#000000"
-						/>
-					</div>
-				{/if}
-			</div>
+				</Popover.Trigger>
+				<Popover.Content class="picker-popup" side="top" align="end" sideOffset={8}>
+					<input
+						type="color"
+						class="native-color-picker"
+						value={value}
+						oninput={handle_native_picker}
+					/>
+					<input
+						type="text"
+						class="hex-input"
+						value={value}
+						onchange={handle_hex_input}
+						placeholder="#000000"
+					/>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 	</div>
 {/if}
@@ -332,24 +305,18 @@
 		height: 14px;
 	}
 
-	.custom-wrapper {
-		position: relative;
-	}
-
-	.picker-popup {
-		position: absolute;
-		bottom: calc(100% + 8px);
-		right: 0;
-		z-index: 100;
-		padding: 12px;
-		background: var(--builder-bg-secondary);
-		border-radius: 8px;
-		border: 1px solid var(--builder-border);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		min-width: 180px;
+	/* Popover content styling - positioning handled by Floating UI */
+	:global(.picker-popup) {
+		padding: 12px !important;
+		background: var(--builder-bg-secondary) !important;
+		border-radius: 8px !important;
+		border: 1px solid var(--builder-border) !important;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+		display: flex !important;
+		flex-direction: column !important;
+		gap: 8px !important;
+		width: auto !important;
+		min-width: 180px !important;
 	}
 
 	.native-color-picker {

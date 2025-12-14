@@ -59,10 +59,10 @@ export const process_upload = {
 // --- 3. Cron Jobs ---
 
 // Runs every morning at 9am
-export const daily_cleanup = {
+export const daily_checkin = {
   cron: '0 9 * * *',
   handler: async () => {
-    // Database cleanup, send reports, etc.
+    // Read data, send reports, etc.
   }
 }
 
@@ -95,8 +95,6 @@ export const daily_cleanup = {
 
     // Local state for code content - start empty, sync from store via effect below
     let code_content = $state("");
-    $inspect({ code_content });
-    $inspect({ store });
 
     // Track when content changes externally (from file load or agent)
     let is_user_editing = $state(false);
@@ -110,7 +108,6 @@ export const daily_cleanup = {
         const current_code = $state.snapshot(code_content);
         const editing = $state.snapshot(is_user_editing);
 
-        console.log({ editing, store_code, current_code });
         // Only sync if user isn't actively editing and there's new content
         if (!editing && store_code && store_code !== current_code) {
             code_content = store_code;

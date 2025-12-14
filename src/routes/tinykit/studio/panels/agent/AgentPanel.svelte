@@ -486,8 +486,8 @@
                           tool_name,
                           item.result || "",
                         )}
-                        {#if tool_name === "update_spec"}
-                          <!-- Spec updates are silent - no UI shown -->
+                        {#if tool_name === "update_spec" || tool_name === "name_project"}
+                          <!-- Silent tools - no UI shown -->
                         {:else if tool_name === "create_content_field"}
                           <button
                             onclick={() => {
@@ -570,18 +570,22 @@
         {/if}
       {/each}
       {#if show_loading}
-        <div class="pl-1 text-[var(--builder-text-secondary)]">
-          <span in:fade class="animate-pulse">Processing...</span>
-        </div>
-        <!-- Loading Indicator -->
         <div
           in:fade={{ duration: 200 }}
           out:fade={{ duration: 300 }}
-          class="loading-bar-container h-[2px] w-full bg-[var(--builder-border)]/50 relative overflow-hidden mt-3 rounded-[1rem]"
+          class="flex items-center gap-3 pl-1"
         >
+          <span
+            class="text-[var(--builder-text-secondary)] animate-pulse whitespace-nowrap"
+            >Processing...</span
+          >
           <div
-            class="loading-bar absolute h-full w-1/2 bg-[var(--builder-accent)] rounded-[1rem]"
-          ></div>
+            class="loading-bar-container h-[2px] flex-1 bg-[var(--builder-border)]/50 relative overflow-hidden rounded-[1rem]"
+          >
+            <div
+              class="loading-bar absolute h-full w-1/2 bg-[var(--builder-accent)] rounded-[1rem]"
+            ></div>
+          </div>
         </div>
       {/if}
     {/if}

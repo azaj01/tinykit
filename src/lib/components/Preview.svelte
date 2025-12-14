@@ -260,8 +260,8 @@
   // });
 </script>
 
-<div class="preview-container" class:is-building={is_compiling}>
-  {#if is_compiling}
+<div class="preview-container" class:is-building={is_compiling || is_processing}>
+  {#if is_compiling || is_processing}
     <div class="building-border"></div>
   {/if}
   {#if compile_error}
