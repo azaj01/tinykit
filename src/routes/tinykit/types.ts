@@ -3,11 +3,13 @@
 // Project type (matches Pocketbase _tk_projects collection)
 export type Project = {
 	id: string
+	collectionId?: string
 	name: string
 	domain: string
 	frontend_code: string
 	backend_code: string
 	published_html: string
+	assets: string[]
 	design: DesignField[]
 	content: ContentField[]
 	snapshots: Snapshot[]
@@ -106,10 +108,13 @@ export type DataFile = string // filename
 
 export type DataRecord = Record<string, any>
 
+// Data field types for collection schemas
+export type DataFieldType = 'text' | 'number' | 'boolean' | 'date' | 'file' | 'files' | 'json'
+
 // Collection schema type (for snapshots)
 export type CollectionSchema = {
 	name: string
-	schema: Array<{ name: string; type: string }>
+	schema: Array<{ name: string; type: DataFieldType }>
 	records?: Array<Record<string, any>>
 	icon?: string
 }

@@ -89,6 +89,7 @@ export type Project = {
 	frontend_code: string
 	backend_code: string
 	published_html: string // filename of the compiled HTML file attachment
+	assets: string[] // filenames of uploaded assets
 	design: any[]
 	content: any[]
 	snapshots: any[]

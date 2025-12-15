@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { getProject } from '$lib/server/pb'
+import { getProject, pb } from '$lib/server/pb'
 import { check_rate_limit, check_origin, get_client_ip } from '$lib/server/data-security'
 
 /**
@@ -15,6 +15,10 @@ import { check_rate_limit, check_origin, get_client_ip } from '$lib/server/data-
  *   - Rate limiting: 30 writes per minute per IP
  *
  * Data format: { schema: [{name, type}], records: [...] }
+ *
+ * File uploads:
+ *   - PATCH with FormData to update files
+ *   - Same format as POST in collection endpoint
  */
 
 // Extract records from collection data
@@ -87,7 +91,22 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		check_origin(request, project.domain)
 		check_rate_limit(get_client_ip(request))
 
-		const updates = await request.json()
+		// Parse request body - handle both JSON and FormData
+		let updates: Record<string, any>
+		const content_type = request.headers.get('content-type') || ''
+
+		if (content_type.includes('multipart/form-data')) {
+			updates = await parse_form_data_with_files(request, project_id)
+		} else if (content_type.includes('application/json')) {
+			updates = await request.json()
+		} else {
+			try {
+				updates = await request.json()
+			} catch {
+				updates = await parse_form_data_with_files(request, project_id)
+			}
+		}
+
 		const data = project.data || {}
 
 		if (!(collection in data)) {
@@ -115,7 +134,6 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		data[collection] = set_records(data[collection], records)
 
 		// Save back to project
-		const { pb } = await import('$lib/server/pb')
 		await pb.collection('_tk_projects').update(project_id, { data })
 
 		return json(updated)
@@ -124,6 +142,91 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		console.error('[Data API] Update error:', err)
 		throw error(500, 'Failed to update record')
 	}
+}
+
+/**
+ * Parse FormData with file upload support
+ */
+async function parse_form_data_with_files(
+	request: Request,
+	project_id: string
+): Promise<Record<string, any>> {
+	const form = await request.formData()
+	const result: Record<string, any> = {}
+	const file_fields: Map<string, File[]> = new Map()
+
+	for (const [key, value] of form.entries()) {
+		if (key === '_data') {
+			try {
+				Object.assign(result, JSON.parse(value as string))
+			} catch {
+				// Ignore parse errors
+			}
+		} else if (key.startsWith('_file:')) {
+			const field_name = key.slice(6)
+			if (value instanceof File) {
+				if (!file_fields.has(field_name)) {
+					file_fields.set(field_name, [])
+				}
+				file_fields.get(field_name)!.push(value)
+			}
+		} else if (value instanceof File) {
+			if (!file_fields.has(key)) {
+				file_fields.set(key, [])
+			}
+			file_fields.get(key)!.push(value)
+		} else {
+			try {
+				result[key] = JSON.parse(value as string)
+			} catch {
+				result[key] = value
+			}
+		}
+	}
+
+	if (file_fields.size > 0) {
+		const uploaded = await upload_files_to_assets(project_id, file_fields)
+		Object.assign(result, uploaded)
+	}
+
+	return result
+}
+
+/**
+ * Upload files to project.assets and return field->filename mapping
+ */
+async function upload_files_to_assets(
+	project_id: string,
+	file_fields: Map<string, File[]>
+): Promise<Record<string, string | string[]>> {
+	const result: Record<string, string | string[]> = {}
+
+	const upload_form = new FormData()
+	const field_indices: Map<string, number[]> = new Map()
+	let file_index = 0
+
+	for (const [field_name, files] of file_fields) {
+		field_indices.set(field_name, [])
+		for (const file of files) {
+			// Use 'assets+' to append to existing files (Pocketbase convention)
+			upload_form.append('assets+', file)
+			field_indices.get(field_name)!.push(file_index++)
+		}
+	}
+
+	const project = await pb.collection('_tk_projects').getOne(project_id)
+	const before_count = (project.assets as string[] || []).length
+
+	const updated = await pb.collection('_tk_projects').update(project_id, upload_form)
+	const new_assets = (updated.assets as string[]).slice(before_count)
+
+	let new_index = 0
+	for (const [field_name, indices] of field_indices) {
+		const filenames = indices.map(() => new_assets[new_index++])
+		result[field_name] = filenames.length === 1 ? filenames[0] : filenames
+	}
+
+	return result
 }
 
 // DELETE - Delete record
@@ -156,7 +259,6 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 		data[collection] = set_records(data[collection], records)
 
 		// Save back to project
-		const { pb } = await import('$lib/server/pb')
 		await pb.collection('_tk_projects').update(project_id, { data })
 
 		return new Response(null, { status: 204 })

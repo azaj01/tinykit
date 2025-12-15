@@ -219,6 +219,10 @@ export async function delete_content_field(project_id: string, id: string): Prom
 	await update_project(project_id, { content: fields })
 }
 
+export async function reorder_content_fields(project_id: string, fields: ContentField[]): Promise<void> {
+	await update_project(project_id, { content: fields })
+}
+
 export async function add_design_field(project_id: string, field: Omit<DesignField, "id">): Promise<void> {
 	const project = await get_project(project_id)
 	const design = project.design || []
@@ -260,6 +264,10 @@ export async function delete_design_field(project_id: string, id: string): Promi
 	const project = await get_project(project_id)
 	const design = (project.design || []).filter(f => f.id !== id)
 	await update_project(project_id, { design })
+}
+
+export async function reorder_design_fields(project_id: string, fields: DesignField[]): Promise<void> {
+	await update_project(project_id, { design: fields })
 }
 
 // Data Files API - stored in project.data as key-value
@@ -631,6 +639,53 @@ function create_collection(name) {
     }
   }
 
+  // Check if value is a File object
+  function isFile(v) {
+    return typeof File !== 'undefined' && v instanceof File
+  }
+
+  // Check if data contains any File objects
+  function hasFiles(data) {
+    for (const v of Object.values(data)) {
+      if (isFile(v)) return true
+      if (Array.isArray(v) && v.length > 0 && isFile(v[0])) return true
+    }
+    return false
+  }
+
+  // Prepare request body - handles FormData passthrough, File auto-detection, and JSON
+  function prepareRequestBody(data) {
+    // FormData passthrough (Pocketbase-style)
+    if (typeof FormData !== 'undefined' && data instanceof FormData) {
+      return { body: data, headers: {} }
+    }
+
+    // Auto-detect File objects and build FormData
+    if (hasFiles(data)) {
+      const form = new FormData()
+      const jsonFields = {}
+
+      for (const [key, value] of Object.entries(data)) {
+        if (isFile(value)) {
+          form.append('_file:' + key, value)
+        } else if (Array.isArray(value) && value.length > 0 && isFile(value[0])) {
+          value.forEach(f => form.append('_file:' + key, f))
+        } else {
+          jsonFields[key] = value
+        }
+      }
+
+      form.append('_data', JSON.stringify(jsonFields))
+      return { body: form, headers: {} }
+    }
+
+    // Plain JSON
+    return {
+      body: JSON.stringify(data),
+      headers: { 'Content-Type': 'application/json' }
+    }
+  }
+
   const collection = {
     // Notify all subscribers with new data (skip if unchanged or in cooldown)
     _notify(records, force = false) {
@@ -691,11 +746,9 @@ function create_collection(name) {
     },
 
     async create(data) {
-      const res = await fetch(base_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
+      // Support FormData passthrough, File objects auto-detection, or plain JSON
+      const { body, headers } = prepareRequestBody(data)
+      const res = await fetch(base_url, { method: 'POST', headers, body })
       if (!res.ok) throw new Error(await res.text())
       const record = await res.json()
       // Set cooldown to ignore echo from our own mutation
@@ -719,11 +772,9 @@ function create_collection(name) {
           collection._notify(cache, true)
         }
       }
-      const res = await fetch(\`\${base_url}/\${id}\`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
+      // Support FormData passthrough, File objects auto-detection, or plain JSON
+      const { body, headers } = prepareRequestBody(data)
+      const res = await fetch(\`\${base_url}/\${id}\`, { method: 'PATCH', headers, body })
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },
@@ -892,4 +943,35 @@ export async function update_project_settings(project_id: string, updates: Parti
 	await update_project(project_id, {
 		settings: { ...project.settings, ...updates }
 	})
+}
+
+// Assets API
+export async function upload_asset(project_id: string, file: File): Promise<string> {
+	const project = await get_project(project_id)
+	const existing_assets = project.assets || []
+
+	// Create FormData with the new file appended to existing assets
+	const form_data = new FormData()
+	form_data.append('assets', file)
+
+	// Update project with new asset
+	const updated = await pb.collection(COLLECTION).update<Project>(project_id, form_data)
+
+	// Find the newly added filename (last one in array)
+	const new_assets = updated.assets || []
+	const new_filename = new_assets.find((f: string) => !existing_assets.includes(f)) || new_assets[new_assets.length - 1]
+
+	// Return the URL for the asset
+	return `/_tk/assets/${new_filename}?project_id=${project_id}`
+}
+
+export async function list_assets(project_id: string): Promise<string[]> {
+	const project = await get_project(project_id)
+	return (project.assets || []).map((filename: string) => `/_tk/assets/${filename}?project_id=${project_id}`)
+}
+
+export async function delete_asset(project_id: string, filename: string): Promise<void> {
+	const project = await get_project(project_id)
+	const assets = (project.assets || []).filter((f: string) => f !== filename)
+	await pb.collection(COLLECTION).update(project_id, { 'assets-': filename })
 }

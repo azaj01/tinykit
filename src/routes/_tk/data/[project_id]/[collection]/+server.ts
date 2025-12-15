@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { getProject } from '$lib/server/pb'
+import { getProject, pb } from '$lib/server/pb'
 import { check_rate_limit, check_origin, get_client_ip } from '$lib/server/data-security'
 
 /**
@@ -14,6 +14,12 @@ import { check_rate_limit, check_origin, get_client_ip } from '$lib/server/data-
  *   - Rate limiting: 30 writes per minute per IP
  *
  * Data format: { schema: [{name, type}], records: [...] }
+ *
+ * File uploads:
+ *   - POST with FormData to include files
+ *   - Non-file fields in `_data` as JSON string
+ *   - File fields as `_file:{fieldname}` entries
+ *   - Files are uploaded to project.assets, filenames stored in record
  *
  * Query params for GET:
  *   - filter: Filter expression (applied in-memory)
@@ -101,7 +107,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const { project_id, collection } = params
 
 	try {
-		// Get project first (needed for origin check)
+		// Get project first (needed for origin check and file uploads)
 		const project = await getProject(project_id)
 		if (!project) throw error(404, 'Project not found')
 
@@ -109,7 +115,24 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		check_origin(request, project.domain)
 		check_rate_limit(get_client_ip(request))
 
-		const body = await request.json()
+		// Parse request body - handle both JSON and FormData
+		let body: Record<string, any>
+		const content_type = request.headers.get('content-type') || ''
+
+		if (content_type.includes('multipart/form-data')) {
+			// FormData with potential file uploads
+			body = await parse_form_data_with_files(request, project_id)
+		} else if (content_type.includes('application/json')) {
+			body = await request.json()
+		} else {
+			// Try JSON first, fall back to FormData
+			try {
+				body = await request.json()
+			} catch {
+				body = await parse_form_data_with_files(request, project_id)
+			}
+		}
+
 		const data = project.data || {}
 
 		// Initialize collection if it doesn't exist (new format)
@@ -118,7 +141,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		}
 
 		// Expect { schema, records } format
-		let collection_data = data[collection]
+		const collection_data = data[collection]
 		if (!collection_data.records) {
 			collection_data.records = []
 		}
@@ -135,7 +158,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		collection_data.records.push(record)
 
 		// Save back to project
-		const { pb } = await import('$lib/server/pb')
 		await pb.collection('_tk_projects').update(project_id, { data })
 
 		return json(record, { status: 201 })
@@ -146,6 +168,105 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		console.error('[Data API] Create error:', err)
 		throw error(500, 'Failed to create record')
 	}
+}
+
+/**
+ * Parse FormData with file upload support
+ * - `_data` field contains JSON for non-file fields
+ * - `_file:{fieldname}` entries contain files to upload
+ * - Direct FormData passthrough also supported (Pocketbase-style)
+ */
+async function parse_form_data_with_files(
+	request: Request,
+	project_id: string
+): Promise<Record<string, any>> {
+	const form = await request.formData()
+	const result: Record<string, any> = {}
+	const file_fields: Map<string, File[]> = new Map()
+
+	// First pass: collect all fields
+	for (const [key, value] of form.entries()) {
+		if (key === '_data') {
+			// JSON data for non-file fields
+			try {
+				Object.assign(result, JSON.parse(value as string))
+			} catch {
+				// Ignore parse errors
+			}
+		} else if (key.startsWith('_file:')) {
+			// File field (our convention)
+			const field_name = key.slice(6) // Remove '_file:' prefix
+			if (value instanceof File) {
+				if (!file_fields.has(field_name)) {
+					file_fields.set(field_name, [])
+				}
+				file_fields.get(field_name)!.push(value)
+			}
+		} else if (value instanceof File) {
+			// Direct file field (Pocketbase-style)
+			if (!file_fields.has(key)) {
+				file_fields.set(key, [])
+			}
+			file_fields.get(key)!.push(value)
+		} else {
+			// Regular field - try to parse as JSON, fall back to string
+			try {
+				result[key] = JSON.parse(value as string)
+			} catch {
+				result[key] = value
+			}
+		}
+	}
+
+	// Upload files and store filenames
+	if (file_fields.size > 0) {
+		const uploaded = await upload_files_to_assets(project_id, file_fields)
+		Object.assign(result, uploaded)
+	}
+
+	return result
+}
+
+/**
+ * Upload files to project.assets and return field->filename mapping
+ */
+async function upload_files_to_assets(
+	project_id: string,
+	file_fields: Map<string, File[]>
+): Promise<Record<string, string | string[]>> {
+	const result: Record<string, string | string[]> = {}
+
+	// Build FormData with all files for single upload request
+	const upload_form = new FormData()
+	const field_indices: Map<string, number[]> = new Map()
+	let file_index = 0
+
+	for (const [field_name, files] of file_fields) {
+		field_indices.set(field_name, [])
+		for (const file of files) {
+			// Use 'assets+' to append to existing files (Pocketbase convention)
+			upload_form.append('assets+', file)
+			field_indices.get(field_name)!.push(file_index++)
+		}
+	}
+
+	// Get current assets count before upload
+	const project = await pb.collection('_tk_projects').getOne(project_id)
+	const before_count = (project.assets as string[] || []).length
+
+	// Upload all files at once
+	const updated = await pb.collection('_tk_projects').update(project_id, upload_form)
+	const new_assets = (updated.assets as string[]).slice(before_count)
+
+	// Map uploaded filenames back to fields
+	let new_index = 0
+	for (const [field_name, indices] of field_indices) {
+		const filenames = indices.map(() => new_assets[new_index++])
+		// Single file -> string, multiple files -> array
+		result[field_name] = filenames.length === 1 ? filenames[0] : filenames
+	}
+
+	return result
 }
 
 // Helper: Generate a short random ID (5 chars, alphanumeric)

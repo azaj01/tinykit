@@ -31,6 +31,53 @@ const API_BASE = '/_tk/data'
 // Global registry for realtime updates
 const _collections = {}
 
+// Check if value is a File object
+function isFile(v) {
+  return typeof File !== 'undefined' && v instanceof File
+}
+
+// Check if data contains any File objects
+function hasFiles(data) {
+  for (const v of Object.values(data)) {
+    if (isFile(v)) return true
+    if (Array.isArray(v) && v.length > 0 && isFile(v[0])) return true
+  }
+  return false
+}
+
+// Prepare request body - handles FormData passthrough, File auto-detection, and JSON
+function prepareRequestBody(data) {
+  // FormData passthrough
+  if (typeof FormData !== 'undefined' && data instanceof FormData) {
+    return { body: data, headers: {} }
+  }
+
+  // Auto-detect File objects and build FormData
+  if (hasFiles(data)) {
+    const form = new FormData()
+    const jsonFields = {}
+
+    for (const [key, value] of Object.entries(data)) {
+      if (isFile(value)) {
+        form.append('_file:' + key, value)
+      } else if (Array.isArray(value) && value.length > 0 && isFile(value[0])) {
+        value.forEach(f => form.append('_file:' + key, f))
+      } else {
+        jsonFields[key] = value
+      }
+    }
+
+    form.append('_data', JSON.stringify(jsonFields))
+    return { body: form, headers: {} }
+  }
+
+  // Plain JSON
+  return {
+    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' }
+  }
+}
+
 function create_collection(name) {
   const base_url = \`\${API_BASE}/\${PROJECT_ID}/\${name}\`
   let subscribers = []
@@ -112,11 +159,9 @@ function create_collection(name) {
     async create(data) {
       // Generate client-side ID if not provided (prevents race conditions with SSE)
       const record_data = data.id ? data : { ...data, id: crypto.randomUUID().slice(0, 5) }
-      const res = await fetch(base_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record_data)
-      })
+      // Support FormData passthrough, File objects auto-detection, or plain JSON
+      const { body, headers } = prepareRequestBody(record_data)
+      const res = await fetch(base_url, { method: 'POST', headers, body })
       if (!res.ok) throw new Error(await res.text())
       const record = await res.json()
       // Set cooldown to ignore echo from our own mutation
@@ -143,11 +188,9 @@ function create_collection(name) {
           collection._notify(cache, true)
         }
       }
-      const res = await fetch(\`\${base_url}/\${id}\`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      })
+      // Support FormData passthrough, File objects auto-detection, or plain JSON
+      const { body, headers } = prepareRequestBody(data)
+      const res = await fetch(\`\${base_url}/\${id}\`, { method: 'PATCH', headers, body })
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },

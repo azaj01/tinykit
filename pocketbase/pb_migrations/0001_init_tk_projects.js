@@ -17,6 +17,15 @@ migrate((app) => {
 			{ name: "snapshots", type: "json", required: false },
 			{ name: "agent_chat", type: "json", required: false },
 			{ name: "data", type: "json", required: false },
+			{
+				name: "assets",
+				type: "file",
+				required: false,
+				maxSelect: 1000,
+				maxSize: 0,
+				mimeTypes: [],
+				thumbs: []
+			},
 			{ name: "settings", type: "json", required: false },
 			{
 				name: "published_html",

@@ -1,8 +1,9 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
-  import { Database, Download, Plus } from "lucide-svelte";
+  import { Database, Download, Plus, Image, File, Trash2 } from "lucide-svelte";
   import { watch } from "runed";
   import { onMount } from "svelte";
+  import { dndzone } from "svelte-dnd-action";
   import { Button } from "$lib/components/ui/button";
   import DeleteButton from "../../components/DeleteButton.svelte";
   import { Input } from "$lib/components/ui/input";
@@ -14,6 +15,7 @@
   import { getProjectContext } from "../../../context";
   import { pb } from "$lib/pocketbase.svelte";
   import { getProjectStore } from "../../project.svelte";
+  import FileField from "../../components/FileField.svelte";
 
   const { project_id } = getProjectContext();
   const store = getProjectStore();
@@ -50,13 +52,15 @@
       let schema = raw_data.schema || [];
       const records = raw_data.records || [];
       if (schema.length === 0 && records.length > 0) {
-        schema = infer_schema_from_records(records);
+        // Only sort inferred schemas (legacy data without explicit order)
+        schema = sort_columns(infer_schema_from_records(records));
       }
-      file_content = { schema: sort_columns(schema), records };
+      file_content = { schema, records };
     } else if (Array.isArray(raw_data)) {
+      // Legacy format - sort inferred schema
       const records = raw_data;
-      const schema = infer_schema_from_records(records);
-      file_content = { schema: sort_columns(schema), records };
+      const schema = sort_columns(infer_schema_from_records(records));
+      file_content = { schema, records };
     }
   }
 
@@ -97,6 +101,9 @@
           select_file(match);
           on_target_consumed?.();
         }
+      } else if (!selected_file && files_count > 0) {
+        // Auto-select first collection if none selected
+        select_file(data_files[0]);
       }
     },
   );
@@ -105,6 +112,7 @@
   let file_content = $state<CollectionData | null>(null);
   let editing_record_index = $state<number | null>(null);
   let editing_record = $state<DataRecord | null>(null);
+  let show_edit_dialog = $state(false);
   let show_add_form = $state(false);
   let new_record = $state<DataRecord>({});
   let show_create_collection = $state(false);
@@ -129,26 +137,51 @@
     });
   }
 
-  // Get column names from schema, sorted with id first
+  // Get column names from schema in defined order
   function get_column_names(schema: ColumnSchema[]): string[] {
-    return sort_columns(schema).map((c) => c.name);
+    return schema.map((c) => c.name);
   }
 
   // Column type options
   const COLUMN_TYPES = [
+    { value: "id", label: "ID" },
     { value: "text", label: "Text" },
     { value: "number", label: "Number" },
     { value: "boolean", label: "Boolean" },
     { value: "date", label: "Date" },
-    { value: "email", label: "Email" },
-    { value: "url", label: "URL" },
+    { value: "json", label: "JSON" },
+    { value: "file", label: "File" },
+    { value: "files", label: "Files" },
   ] as const;
 
   function get_type_label(type: string): string {
     return COLUMN_TYPES.find((t) => t.value === type)?.label || "Text";
   }
 
-  // Infer schema from records if missing
+  // Get column type from schema
+  function get_column_type(schema: ColumnSchema[], col_name: string): string {
+    return schema.find((c) => c.name === col_name)?.type || "text";
+  }
+
+  // Check if a filename is an image
+  function is_image_file(filename: string): boolean {
+    if (!filename) return false;
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    return ["jpg", "jpeg", "png", "gif", "webp", "svg", "avif"].includes(ext);
+  }
+
+  // Get asset URL
+  function get_asset_url(filename: string, thumb?: string): string {
+    return `/_tk/assets/${filename}?project_id=${project_id}${thumb ? `&thumb=${thumb}` : ""}`;
+  }
+
+  // Get display name from Pocketbase filename
+  function get_display_name(filename: string): string {
+    const match = filename.match(/^[a-z0-9]+_(.+)$/i);
+    return match ? match[1] : filename;
+  }
+
+  // Infer schema from records if missing (legacy data fallback)
   function infer_schema_from_records(records: DataRecord[]): ColumnSchema[] {
     if (!records || records.length === 0) return [];
 
@@ -183,20 +216,21 @@
 
         // If schema is missing/empty but we have records, infer schema
         if (schema.length === 0 && records.length > 0) {
-          schema = infer_schema_from_records(records);
+          // Only sort inferred schemas
+          schema = sort_columns(infer_schema_from_records(records));
         }
 
         file_content = {
-          schema: sort_columns(schema),
+          schema,
           records,
           icon,
         };
       } else if (Array.isArray(raw_data)) {
-        // Legacy format: just an array of records
+        // Legacy format: just an array of records - sort inferred schema
         const records = raw_data;
-        const schema = infer_schema_from_records(records);
+        const schema = sort_columns(infer_schema_from_records(records));
         file_content = {
-          schema: sort_columns(schema),
+          schema,
           records,
         };
       } else {
@@ -218,11 +252,11 @@
 
   function start_add_record() {
     if (!file_content) return;
-    const columns = get_column_names(file_content.schema);
-    new_record = columns.reduce(
+    // Initialize new record with default values based on column types
+    new_record = file_content.schema.reduce(
       (acc, col) => ({
         ...acc,
-        [col]: col === "id" ? generate_id() : "",
+        [col.name]: get_default_value(col.type),
       }),
       {},
     );
@@ -245,6 +279,7 @@
     if (!file_content) return;
     editing_record_index = index;
     editing_record = { ...file_content.records[index] };
+    show_edit_dialog = true;
   }
 
   async function save_edit_record() {
@@ -263,11 +298,13 @@
       icon: file_content.icon,
     };
     await save_collection(updated);
+    show_edit_dialog = false;
     editing_record_index = null;
     editing_record = null;
   }
 
   function cancel_edit() {
+    show_edit_dialog = false;
     editing_record_index = null;
     editing_record = null;
     show_add_form = false;
@@ -302,8 +339,60 @@
     new_columns = [...new_columns, { name: "", type: "text" }];
   }
 
-  function remove_column(index: number) {
-    new_columns = new_columns.filter((_, i) => i !== index);
+  function remove_column(id: string) {
+    columns_with_ids = columns_with_ids.filter((c) => c.id !== id);
+  }
+
+  // DnD requires unique IDs - track columns with IDs
+  let column_id_counter = $state(0);
+  type ColumnWithId = ColumnSchema & { id: string };
+  let columns_with_ids = $state<ColumnWithId[]>([
+    { id: "col_0", name: "id", type: "id" },
+  ]);
+
+  const FLIP_DURATION = 200;
+
+  // Split columns: ID columns are locked at top, others are draggable
+  let id_columns = $derived(columns_with_ids.filter((c) => c.type === "id"));
+  let draggable_columns = $derived(
+    columns_with_ids.filter((c) => c.type !== "id"),
+  );
+
+  function init_columns_for_edit(schema: ColumnSchema[]) {
+    columns_with_ids = schema.map((col) => ({
+      ...col,
+      id: `col_${column_id_counter++}`,
+    }));
+  }
+
+  function add_column_with_id() {
+    // New columns are added to draggable section
+    const new_col: ColumnWithId = {
+      id: `col_${column_id_counter++}`,
+      name: "",
+      type: "text",
+    };
+    // Insert after ID columns
+    const id_cols = columns_with_ids.filter((c) => c.type === "id");
+    const other_cols = columns_with_ids.filter((c) => c.type !== "id");
+    columns_with_ids = [...id_cols, ...other_cols, new_col];
+  }
+
+  function handle_dnd_consider(e: CustomEvent<{ items: ColumnWithId[] }>) {
+    // Preserve ID columns at the start
+    columns_with_ids = [...id_columns, ...e.detail.items];
+  }
+
+  function handle_dnd_finalize(e: CustomEvent<{ items: ColumnWithId[] }>) {
+    // Preserve ID columns at the start
+    columns_with_ids = [...id_columns, ...e.detail.items];
+  }
+
+  // Convert columns_with_ids back to plain schema for saving
+  function get_schema_from_columns(): ColumnSchema[] {
+    return columns_with_ids
+      .filter((col) => col.name.trim())
+      .map(({ name, type }) => ({ name: name.trim(), type }));
   }
 
   async function refresh_data_files() {
@@ -327,7 +416,7 @@
 
       // Create collection with schema, empty records, and icon
       const collection_data: CollectionData = {
-        schema: sort_columns(schema),
+        schema,
         records: [],
         icon: new_collection_icon.trim() || undefined,
       };
@@ -355,7 +444,10 @@
     show_edit_collection = false;
     new_collection_name = "";
     new_collection_icon = "";
-    new_columns = [{ name: "id", type: "text" }];
+    new_columns = [{ name: "id", type: "id" }];
+    columns_with_ids = [
+      { id: `col_${column_id_counter++}`, name: "id", type: "id" },
+    ];
   }
 
   async function delete_collection(filename: string) {
@@ -376,14 +468,16 @@
 
   function start_edit_collection() {
     if (!selected_file || !file_content) return;
-    // Load current schema, sorted with id first, and icon
-    new_columns = sort_columns([...file_content.schema]);
+    // Load current schema in its defined order
+    init_columns_for_edit(file_content.schema);
     new_collection_icon = file_content.icon || "";
     show_edit_collection = true;
   }
 
   function get_default_value(type: string): any {
     switch (type) {
+      case "id":
+        return generate_id();
       case "number":
         return 0;
       case "boolean":
@@ -397,10 +491,8 @@
     if (!selected_file || !file_content) return;
 
     try {
-      // Filter out columns with empty names
-      const new_schema = new_columns
-        .filter((col) => col.name.trim())
-        .map((col) => ({ name: col.name.trim(), type: col.type }));
+      // Get schema from DnD columns
+      const new_schema = get_schema_from_columns();
 
       // Get old schema column names for comparison
       const old_column_names = new Set(file_content.schema.map((c) => c.name));
@@ -422,14 +514,16 @@
       });
 
       const updated: CollectionData = {
-        schema: sort_columns(new_schema),
+        schema: new_schema,
         records: new_records,
         icon: new_collection_icon.trim() || undefined,
       };
 
       await save_collection(updated);
       show_edit_collection = false;
-      new_columns = [{ name: "id", type: "text" }];
+      columns_with_ids = [
+        { id: `col_${column_id_counter++}`, name: "id", type: "id" },
+      ];
       new_collection_icon = "";
     } catch (error) {
       console.error("Failed to edit collection:", error);
@@ -545,46 +639,13 @@
           </button>
           <button
             onclick={start_add_record}
-            class="px-3 py-1.5 text-xs bg-[var(--builder-accent)] hover:opacity-90 text-white rounded transition-colors font-medium"
+            class="px-3 py-1.5 text-xs border border-[var(--builder-border)] hover:border-[var(--builder-text-secondary)] text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] rounded transition-colors"
           >
             + Add
           </button>
         </div>
       </div>
       <div class="flex-1 overflow-auto">
-        {#if show_add_form}
-          <div
-            class="p-4 border-b border-[var(--builder-border)] bg-[var(--builder-bg-secondary)]"
-          >
-            <div class="grid grid-cols-2 gap-3 mb-3">
-              {#each columns as col}
-                <div>
-                  <label
-                    class="text-xs text-[var(--builder-text-secondary)] block mb-1"
-                    >{col}</label
-                  >
-                  <input
-                    type="text"
-                    bind:value={new_record[col]}
-                    class="w-full px-2 py-1 text-sm bg-[var(--builder-bg-primary)] border border-[var(--builder-border)] rounded text-[var(--builder-text-primary)] focus:border-[var(--builder-accent)] focus:outline-none"
-                  />
-                </div>
-              {/each}
-            </div>
-            <div class="flex gap-2">
-              <button
-                onclick={save_new_record}
-                class="px-3 py-1 text-xs bg-[var(--builder-accent)] hover:opacity-90 text-white rounded"
-                >Save</button
-              >
-              <button
-                onclick={cancel_edit}
-                class="px-3 py-1 text-xs text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)]"
-                >Cancel</button
-              >
-            </div>
-          </div>
-        {/if}
         {#if records.length > 0 && columns.length > 0}
           <table class="w-full border-collapse">
             <thead class="sticky top-0 bg-[var(--builder-bg-secondary)] z-10">
@@ -603,81 +664,107 @@
             </thead>
             <tbody class="divide-y divide-[var(--builder-border)]">
               {#each records as record, i (i)}
-                {#if editing_record_index === i && editing_record}
-                  <tr class="bg-[var(--builder-bg-secondary)]">
-                    {#each columns as col}
-                      <td class="px-3 py-2">
-                        <input
-                          type="text"
-                          bind:value={editing_record[col]}
-                          class="w-full px-2 py-1.5 text-sm bg-[var(--builder-bg-primary)] border border-[var(--builder-border)] rounded text-[var(--builder-text-primary)] focus:border-[var(--builder-accent)] focus:outline-none"
-                        />
-                      </td>
-                    {/each}
-                    <td class="px-4 py-2 text-right whitespace-nowrap">
-                      <button
-                        onclick={save_edit_record}
-                        class="text-xs text-[var(--builder-accent)] hover:opacity-80 mr-3"
-                        >Save</button
-                      >
-                      <button
-                        onclick={cancel_edit}
-                        class="text-xs text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)]"
-                        >Cancel</button
-                      >
-                    </td>
-                  </tr>
-                {:else}
-                  <tr
-                    class="hover:bg-[var(--builder-bg-secondary)] group transition-colors"
-                  >
-                    {#each columns as col}
-                      {@const val = record[col]}
-                      <td
-                        class="px-4 py-3 text-sm text-[var(--builder-text-primary)] max-w-xs truncate"
-                      >
-                        {#if val === null || val === undefined}
-                          <span
-                            class="text-[var(--builder-text-secondary)] italic opacity-60"
-                            >null</span
-                          >
-                        {:else if typeof val === "object"}
-                          <span
-                            class="text-[var(--builder-text-secondary)] font-mono text-xs"
-                            >{JSON.stringify(val)}</span
-                          >
-                        {:else if typeof val === "boolean"}
-                          <span
-                            class={val
-                              ? "text-orange-400"
-                              : "text-[var(--builder-text-secondary)]"}
-                            >{val}</span
-                          >
-                        {:else}
-                          {val}
-                        {/if}
-                      </td>
-                    {/each}
+                <tr
+                  onclick={() => start_edit_record(i)}
+                  class="hover:bg-[var(--builder-bg-secondary)] group transition-colors cursor-pointer"
+                >
+                  {#each columns as col}
+                    {@const val = record[col]}
+                    {@const col_type = get_column_type(
+                      file_content.schema,
+                      col,
+                    )}
                     <td
-                      class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
+                      class="px-4 py-3 text-sm text-[var(--builder-text-primary)] max-w-xs truncate"
                     >
-                      <button
-                        onclick={() => start_edit_record(i)}
-                        class="text-xs text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] mr-3"
-                        >Edit</button
-                      >
-                      <button
-                        onclick={() => delete_record(i)}
-                        class="text-xs text-[var(--builder-text-secondary)] hover:text-red-400"
-                        >Delete</button
-                      >
+                      {#if val === null || val === undefined || val === ""}
+                        <span
+                          class="text-[var(--builder-text-secondary)] italic opacity-60"
+                          >—</span
+                        >
+                      {:else if col_type === "file" && typeof val === "string"}
+                        <div class="flex items-center gap-2">
+                          {#if is_image_file(val)}
+                            <img
+                              src={get_asset_url(val, "32x32")}
+                              alt=""
+                              class="w-8 h-8 rounded object-cover flex-shrink-0"
+                            />
+                          {:else}
+                            <div
+                              class="w-8 h-8 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center flex-shrink-0"
+                            >
+                              <File
+                                class="w-4 h-4 text-[var(--builder-text-secondary)]"
+                              />
+                            </div>
+                          {/if}
+                          <span class="truncate text-xs"
+                            >{get_display_name(val)}</span
+                          >
+                        </div>
+                      {:else if col_type === "files" && Array.isArray(val)}
+                        <div class="flex items-center gap-1">
+                          {#each val.slice(0, 3) as filename}
+                            {#if is_image_file(filename)}
+                              <img
+                                src={get_asset_url(filename, "24x24")}
+                                alt=""
+                                class="w-6 h-6 rounded object-cover"
+                              />
+                            {:else}
+                              <div
+                                class="w-6 h-6 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center"
+                              >
+                                <File
+                                  class="w-3 h-3 text-[var(--builder-text-secondary)]"
+                                />
+                              </div>
+                            {/if}
+                          {/each}
+                          {#if val.length > 3}
+                            <span
+                              class="text-xs text-[var(--builder-text-secondary)]"
+                              >+{val.length - 3}</span
+                            >
+                          {/if}
+                        </div>
+                      {:else if typeof val === "object"}
+                        <span
+                          class="text-[var(--builder-text-secondary)] font-mono text-xs"
+                          >{JSON.stringify(val)}</span
+                        >
+                      {:else if typeof val === "boolean"}
+                        <span
+                          class={val
+                            ? "text-orange-400"
+                            : "text-[var(--builder-text-secondary)]"}
+                          >{val}</span
+                        >
+                      {:else}
+                        {val}
+                      {/if}
                     </td>
-                  </tr>
-                {/if}
+                  {/each}
+                  <td
+                    class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
+                  >
+                    <button
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        delete_record(i);
+                      }}
+                      class="p-1.5 text-[var(--builder-text-secondary)] hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                      title="Delete record"
+                    >
+                      <Trash2 class="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
               {/each}
             </tbody>
           </table>
-        {:else if !show_add_form}
+        {:else}
           <div class="flex-1 flex items-center justify-center h-full">
             <p class="text-[var(--builder-text-secondary)] text-sm">
               No records in this collection
@@ -723,6 +810,7 @@
             bind:value={new_collection_name}
             oninput={handle_collection_name_input}
             placeholder="e.g., users, products, orders"
+            class="h-10"
             required
           />
         </div>
@@ -742,7 +830,7 @@
               id="collection-icon"
               bind:value={new_collection_icon}
               placeholder="e.g., mdi:users (optional)"
-              class="flex-1"
+              class="h-10 flex-1"
             />
           </div>
         </div>
@@ -852,7 +940,7 @@
               id="edit-collection-icon"
               bind:value={new_collection_icon}
               placeholder="e.g., mdi:users (optional)"
-              class="flex-1"
+              class="flex-1 h-10"
             />
           </div>
         </div>
@@ -864,7 +952,7 @@
               type="button"
               variant="ghost"
               size="sm"
-              onclick={add_column}
+              onclick={add_column_with_id}
               class="h-auto py-1 px-2 text-xs"
             >
               <Plus class="h-3 w-3 mr-1" />
@@ -872,9 +960,43 @@
             </Button>
           </div>
 
-          <div class="flex flex-col gap-2">
-            {#each new_columns as column, i (i)}
+          <!-- ID columns (locked at top) -->
+          {#each id_columns as column (column.id)}
+            <div class="flex gap-2 items-center opacity-60">
+              <div class="p-1 w-4"></div>
+              <Input
+                bind:value={column.name}
+                placeholder="Column name"
+                class="flex-1"
+              />
+              <div
+                class="w-28 px-3 py-2 text-sm border border-[var(--builder-border)] rounded-md bg-[var(--builder-bg-secondary)]"
+              >
+                {get_type_label(column.type)}
+              </div>
+              <div class="w-8"></div>
+            </div>
+          {/each}
+
+          <!-- Draggable columns -->
+          <div
+            class="flex flex-col gap-2"
+            use:dndzone={{
+              items: draggable_columns,
+              flipDurationMs: FLIP_DURATION,
+              dropTargetStyle: {},
+            }}
+            onconsider={handle_dnd_consider}
+            onfinalize={handle_dnd_finalize}
+          >
+            {#each draggable_columns as column (column.id)}
               <div class="flex gap-2 items-center">
+                <div
+                  class="cursor-grab text-[var(--builder-text-secondary)] opacity-40 hover:opacity-80 transition-opacity"
+                  title="Drag to reorder"
+                >
+                  <Icon icon="ic:baseline-drag-handle" class="w-4 h-4" />
+                </div>
                 <Input
                   bind:value={column.name}
                   placeholder="Column name"
@@ -891,7 +1013,7 @@
                     {get_type_label(column.type)}
                   </Select.Trigger>
                   <Select.Content>
-                    {#each COLUMN_TYPES as type_option (type_option.value)}
+                    {#each COLUMN_TYPES.filter((t) => t.value !== "id") as type_option (type_option.value)}
                       <Select.Item
                         value={type_option.value}
                         label={type_option.label}
@@ -902,16 +1024,15 @@
                   </Select.Content>
                 </Select.Root>
                 <DeleteButton
-                  onclick={() => remove_column(i)}
-                  disabled={new_columns.length === 1}
+                  onclick={() => remove_column(column.id)}
+                  disabled={columns_with_ids.length === 1}
                 />
               </div>
             {/each}
           </div>
 
           <p class="text-xs text-[var(--builder-text-secondary)] opacity-60">
-            Note: Removing columns will delete that data from all records.
-            Adding columns will use default values for existing records.
+            Drag to reorder. ID column is always first.
           </p>
         </div>
 
@@ -925,12 +1046,183 @@
           </Button>
           <Button
             type="submit"
-            disabled={new_columns.every((c) => !c.name.trim())}
+            disabled={columns_with_ids.every((c) => !c.name.trim())}
           >
             Save Changes
           </Button>
         </Dialog.Footer>
       </form>
+    </Dialog.Content>
+  </Dialog.Root>
+
+  <!-- Edit Record Dialog -->
+  <Dialog.Root bind:open={show_edit_dialog}>
+    <Dialog.Content class="sm:max-w-lg">
+      <Dialog.Header>
+        <Dialog.Title>Edit Record</Dialog.Title>
+        <Dialog.Description>
+          Update the values for this record.
+        </Dialog.Description>
+      </Dialog.Header>
+
+      {#if editing_record && file_content}
+        {@const columns = get_column_names(file_content.schema)}
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            save_edit_record();
+          }}
+          class="flex flex-col gap-4 py-4"
+        >
+          <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1">
+            {#each columns as col}
+              {@const col_type = get_column_type(file_content.schema, col)}
+              <div class="flex flex-col gap-1.5">
+                <Label for="edit-{col}">{col}</Label>
+                {#if col_type === "id"}
+                  <Input
+                    id="edit-{col}"
+                    bind:value={editing_record[col]}
+                    class="font-mono text-sm opacity-50"
+                    readonly
+                  />
+                {:else if col_type === "file"}
+                  <FileField {project_id} bind:value={editing_record[col]} />
+                {:else if col_type === "files"}
+                  <FileField
+                    {project_id}
+                    bind:value={editing_record[col]}
+                    multiple
+                  />
+                {:else if col_type === "boolean"}
+                  <Select.Root
+                    type="single"
+                    value={String(editing_record[col])}
+                    onValueChange={(v) => {
+                      if (editing_record) editing_record[col] = v === "true";
+                    }}
+                  >
+                    <Select.Trigger class="w-full">
+                      {editing_record[col] ? "true" : "false"}
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Item value="true" label="true">true</Select.Item>
+                      <Select.Item value="false" label="false"
+                        >false</Select.Item
+                      >
+                    </Select.Content>
+                  </Select.Root>
+                {:else if col_type === "number"}
+                  <Input
+                    id="edit-{col}"
+                    type="number"
+                    step="any"
+                    value={editing_record[col]}
+                    oninput={(e) => {
+                      if (editing_record)
+                        editing_record[col] = Number(e.currentTarget.value);
+                    }}
+                  />
+                {:else}
+                  <Input id="edit-{col}" bind:value={editing_record[col]} />
+                {/if}
+              </div>
+            {/each}
+          </div>
+
+          <Dialog.Footer class="pt-2">
+            <Button type="button" variant="ghost" onclick={cancel_edit}>
+              Cancel
+            </Button>
+            <Button type="submit">Save Changes</Button>
+          </Dialog.Footer>
+        </form>
+      {/if}
+    </Dialog.Content>
+  </Dialog.Root>
+
+  <!-- Add Record Dialog -->
+  <Dialog.Root bind:open={show_add_form}>
+    <Dialog.Content class="sm:max-w-lg">
+      <Dialog.Header>
+        <Dialog.Title>Add Record</Dialog.Title>
+        <Dialog.Description>
+          Create a new record in {selected_file}.
+        </Dialog.Description>
+      </Dialog.Header>
+
+      {#if file_content}
+        {@const columns = get_column_names(file_content.schema)}
+        <form
+          onsubmit={(e) => {
+            e.preventDefault();
+            save_new_record();
+          }}
+          class="flex flex-col gap-4 py-4"
+        >
+          <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1">
+            {#each columns as col}
+              {@const col_type = get_column_type(file_content.schema, col)}
+              <div class="flex flex-col gap-1.5">
+                <Label for="add-{col}">{col}</Label>
+                {#if col_type === "id"}
+                  <Input
+                    id="add-{col}"
+                    bind:value={new_record[col]}
+                    class="font-mono text-sm opacity-50"
+                    readonly
+                  />
+                {:else if col_type === "file"}
+                  <FileField {project_id} bind:value={new_record[col]} />
+                {:else if col_type === "files"}
+                  <FileField
+                    {project_id}
+                    bind:value={new_record[col]}
+                    multiple
+                  />
+                {:else if col_type === "boolean"}
+                  <Select.Root
+                    type="single"
+                    value={String(new_record[col])}
+                    onValueChange={(v) => {
+                      new_record[col] = v === "true";
+                    }}
+                  >
+                    <Select.Trigger class="w-full">
+                      {new_record[col] ? "true" : "false"}
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Item value="true" label="true">true</Select.Item>
+                      <Select.Item value="false" label="false"
+                        >false</Select.Item
+                      >
+                    </Select.Content>
+                  </Select.Root>
+                {:else if col_type === "number"}
+                  <Input
+                    id="add-{col}"
+                    type="number"
+                    step="any"
+                    value={new_record[col]}
+                    oninput={(e) => {
+                      new_record[col] = Number(e.currentTarget.value);
+                    }}
+                  />
+                {:else}
+                  <Input id="add-{col}" bind:value={new_record[col]} />
+                {/if}
+              </div>
+            {/each}
+          </div>
+
+          <Dialog.Footer class="pt-2">
+            <Button type="button" variant="ghost" onclick={cancel_edit}>
+              Cancel
+            </Button>
+            <Button type="submit">Add Record</Button>
+          </Dialog.Footer>
+        </form>
+      {/if}
     </Dialog.Content>
   </Dialog.Root>
 </div>
