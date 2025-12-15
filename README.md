@@ -61,8 +61,21 @@ Or start from scratch.
 
 ## Quick Start
 
-**Railway (fastest):** Click the deploy button above, add your API key, done.
+### Railway (Easiest)
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/tinykit)
+
+One-click deploy. Configure your LLM from the app (optionally, add key as ENV var).
+
+### Docker (Self-Hosted)
+
+```bash
+git clone https://github.com/tinykit-studio/tinykit.git
+cd tinykit/deploy/docker
+docker-compose up -d
+```
+
+Works on any VPS. See [deploy/docker/README.md](./deploy/docker/README.md) for details.
 
 ---
 
@@ -73,7 +86,7 @@ Or start from scratch.
 - [x] Snapshots (time travel)
 - [x] Domain-based routing
 - [ ] Full PocketBase integration
-- [ ] Backend functions (API routes, cron)
+- [ ] Backend functions (API routes, background jobs, cron)
 
 ---
 
