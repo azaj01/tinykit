@@ -269,9 +269,40 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const db = {
+// Create stub collection for unknown/not-yet-loaded collections
+function create_stub_collection(name) {
+  console.warn('[db] Collection "' + name + '" not found - returning stub')
+  return {
+    _notify() {},
+    _set_cooldown() {},
+    _refresh() { return Promise.resolve() },
+    list() { return Promise.resolve([]) },
+    get() { return Promise.resolve(null) },
+    create() { return Promise.reject(new Error('Collection "' + name + '" not available')) },
+    update() { return Promise.reject(new Error('Collection "' + name + '" not available')) },
+    delete() { return Promise.reject(new Error('Collection "' + name + '" not available')) },
+    subscribe(cb) {
+      // Call with empty array immediately so loading states resolve
+      setTimeout(() => cb([]), 0)
+      return () => {} // noop unsubscribe
+    }
+  }
+}
+
+const _defined_collections = {
 ${collection_entries}
 }
+
+// Proxy to return stub for unknown collections
+const db = new Proxy(_defined_collections, {
+  get(target, prop) {
+    if (prop in target) return target[prop]
+    if (typeof prop === 'string' && !prop.startsWith('_')) {
+      return create_stub_collection(prop)
+    }
+    return undefined
+  }
+})
 
 export default db
 `.trim()
