@@ -292,7 +292,7 @@ Then deploy to:
 
 ## Support
 
-- **Issues:** https://github.com/matthewmateo/tinykit/issues
+- **Issues:** https://github.com/tinykit-studio/tinykit/issues
 - **Docs:** See README.md and CLAUDE.md
 - **Railway Docs:** https://docs.railway.app
 

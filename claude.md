@@ -397,7 +397,7 @@ pb.collection('_tk_projects').subscribe(id, (e) => {
 ### Initial Setup
 ```bash
 # Clone the repository
-git clone https://github.com/matthewmateo/tinykit.git
+git clone https://github.com/tinykit-studio/tinykit.git
 cd tinykit
 
 # Install dependencies

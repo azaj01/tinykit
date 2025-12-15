@@ -6,6 +6,10 @@
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/tinykit)
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/NfMjt3yUtn)
+[![X](https://img.shields.io/badge/Follow-@tinykit--studio-000?logo=x&logoColor=white)](https://x.com/tinykit_studio)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 ---
 
 ## What is tinykit?
@@ -14,8 +18,8 @@ tinykit is an AI-powered development platform that generates, edits, and hosts y
 
 ```
 You: "Build a recipe box for my family"
-AI: *writes code, sets up database*
-You: *tweak colors, add a field*
+AI: *writes code, sets up database and fields*
+You: *tweak code, update content and colors*
 You: *point recipes.yourfamily.com → your server*
 Done.
 ```
@@ -27,13 +31,13 @@ Done.
 | Feature | Description |
 |---------|-------------|
 | **Self-hosted** | Your server, your data. Powered by PocketBase. |
-| **Agentic** | Prompt the agent to write code and wire up the database. |
+| **Agentic** | Prompt the agent to write code, create fields and tables, wire it all up. |
 | **Database baked-in** | Store data in simple JSON collections. |
 | **Full code access** | Direct access to your code (a single Svelte file). |
 | **Content Fields** | Edit text without touching code. |
 | **Design System** | Update colors, fonts, shadows from a visual editor. |
 | **Time Travel** | Snapshots on every change. Undo anything. |
-| **Bring Your Own LLM** | OpenAI, Anthropic, Gemini, or DeepSeek. |
+| **Bring Your Own LLM** | OpenAI, Anthropic, or Gemini (more coming soon). |
 
 **Run hundreds of apps on one server.** Point any domain → get a working app.
 
@@ -59,15 +63,6 @@ Or start from scratch.
 
 **Railway (fastest):** Click the deploy button above, add your API key, done.
 
-**Local:**
-```bash
-git clone https://github.com/matthewmateo/tinykit.git && cd tinykit
-npm install && cp .env.example .env
-# Edit .env with your LLM API key, then:
-npm run pocketbase:download && npm run dev
-```
-
-See [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) for full setup.
 
 ---
 
@@ -79,15 +74,11 @@ See [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) for full setup.
 - [x] Domain-based routing
 - [ ] Full PocketBase integration
 - [ ] Backend functions (API routes, cron)
-- [ ] On-page visual editing
-
-See [ROADMAP.md](./ROADMAP.md) for the full plan.
 
 ---
 
 ## Docs
 
-- [Local Development](./LOCAL_DEVELOPMENT.md)
 - [Architecture](./ARCHITECTURE.md)
 - [Technical Spec](./SPEC.md)
 - [Contributing](./CONTRIBUTING.md)

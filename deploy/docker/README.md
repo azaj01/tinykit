@@ -6,7 +6,7 @@ Deploy tinykit using Docker on any host (VPS, DigitalOcean, AWS, etc.)
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/matthewmateo/tinykit.git
+   git clone https://github.com/tinykit-studio/tinykit.git
    cd tinykit
    ```
 
