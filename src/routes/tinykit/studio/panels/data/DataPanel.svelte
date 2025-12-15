@@ -547,243 +547,256 @@
   }
 </script>
 
-<div class="h-full flex font-sans text-sm">
-  <!-- Collections Sidebar -->
-  <div class="w-48 border-r border-[var(--builder-border)] flex flex-col">
-    <div class="p-3 border-b border-[var(--builder-border)]">
-      <h3
-        class="text-[var(--builder-text-secondary)] text-xs uppercase tracking-wide"
+<div class="h-full flex flex-col font-sans text-sm">
+  <!-- Header with Collection Dropdown -->
+  <div
+    class="border-b border-[var(--builder-border)] bg-[var(--builder-bg-primary)] px-3 py-2 flex items-center justify-between gap-2"
+  >
+    <div class="flex items-center gap-2 min-w-0 flex-1">
+      <!-- Collection Dropdown -->
+      <Select.Root
+        type="single"
+        value={selected_file || ""}
+        onValueChange={(v) => {
+          if (v === "__create__") {
+            show_create_collection = true;
+          } else if (v) {
+            select_file(v);
+          }
+        }}
       >
-        Collections
-      </h3>
-    </div>
-    <div class="flex-1 overflow-y-auto">
-      {#if data_files.length > 0}
-        {#each data_files as file (file)}
-          <div class="group relative">
-            <button
-              onclick={() => select_file(file)}
-              class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors {selected_file ===
-              file
-                ? 'bg-[var(--builder-bg-tertiary)] text-[var(--builder-text-primary)]'
-                : 'text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] hover:bg-[var(--builder-bg-secondary)]'}"
-            >
+        <Select.Trigger
+          class="h-8 px-2 gap-1.5 border-none bg-transparent hover:bg-[var(--builder-bg-secondary)] w-auto"
+        >
+          <div class="flex items-center gap-2">
+            {#if selected_file}
               <Icon
-                icon={table_icons[file] || "mdi:database"}
-                class="w-4 h-4 flex-shrink-0"
+                icon={table_icons[selected_file] || "mdi:database"}
+                class="w-4 h-4 flex-shrink-0 text-[var(--builder-text-secondary)]"
               />
-              <span class="flex-1 truncate">{file}</span>
-            </button>
-            <button
-              onclick={(e) => {
-                e.stopPropagation();
-                delete_collection(file);
-              }}
-              class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[var(--builder-text-secondary)] hover:text-red-400 transition-all"
-              title="Delete collection"
-            >
-              ×
-            </button>
+              <span class="font-medium text-[var(--builder-text-primary)]"
+                >{selected_file}</span
+              >
+            {:else}
+              <Database
+                class="w-4 h-4 flex-shrink-0 text-[var(--builder-text-secondary)]"
+              />
+              <span class="text-[var(--builder-text-secondary)]">Select</span>
+            {/if}
           </div>
-        {/each}
-        <button
-          onclick={() => (show_create_collection = true)}
-          class="w-full px-3 py-2 text-left text-sm text-[var(--builder-accent)] hover:opacity-80 hover:bg-[var(--builder-bg-secondary)] transition-colors"
+        </Select.Trigger>
+        <Select.Content>
+          {#each data_files as file (file)}
+            <Select.Item value={file} label={file}>
+              <div class="flex items-center gap-2">
+                <Icon
+                  icon={table_icons[file] || "mdi:database"}
+                  class="w-4 h-4 flex-shrink-0"
+                />
+                {file}
+              </div>
+            </Select.Item>
+          {/each}
+          {#if data_files.length > 0}
+            <div class="border-t border-[var(--builder-border)] my-1"></div>
+          {/if}
+          <Select.Item value="__create__" label="Create collection">
+            <div class="flex items-center gap-2 text-[var(--builder-accent)]">
+              <Plus class="w-4 h-4 flex-shrink-0" />
+              Create collection
+            </div>
+          </Select.Item>
+        </Select.Content>
+      </Select.Root>
+
+      {#if selected_file && file_content}
+        <span
+          class="text-[var(--builder-text-secondary)] text-xs flex-shrink-0"
         >
-          + Create Collection
-        </button>
-      {:else}
-        <div class="p-3 text-[var(--builder-text-secondary)] text-xs">
-          No collections yet
-        </div>
-        <button
-          onclick={() => (show_create_collection = true)}
-          class="w-full px-3 py-2 text-left text-sm text-[var(--builder-accent)] hover:opacity-80 hover:bg-[var(--builder-bg-secondary)] transition-colors"
-        >
-          + Create Collection
-        </button>
+          {file_content.records.length} records
+        </span>
       {/if}
     </div>
+
+    {#if selected_file && file_content}
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <button
+          onclick={download_collection}
+          class="p-1.5 text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] transition-colors"
+          title="Download JSON"
+        >
+          <Download class="w-4 h-4" />
+        </button>
+        <button
+          onclick={start_edit_collection}
+          class="p-1.5 text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] transition-colors"
+          title="Edit collection"
+        >
+          <Icon icon="mdi:pencil" class="w-4 h-4" />
+        </button>
+        <button
+          onclick={start_add_record}
+          class="p-1.5 text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] transition-colors border border-[var(--builder-border)] hover:border-[var(--builder-text-secondary)] rounded"
+          title="Add record"
+        >
+          <Plus class="w-4 h-4" />
+        </button>
+      </div>
+    {/if}
   </div>
 
   <!-- Table View -->
   <div class="flex-1 flex flex-col overflow-hidden">
     {#if selected_file && file_content}
-      {@const collection_name = selected_file.replace(".json", "")}
       {@const records = file_content.records}
       {@const columns = get_column_names(file_content.schema)}
-      <div
-        class="border-b border-[var(--builder-border)] bg-[var(--builder-bg-primary)] px-4 py-3 flex items-center justify-between min-w-[400px]"
-      >
-        <div class="flex items-center gap-3">
-          <Icon
-            icon={table_icons[selected_file] || "mdi:database"}
-            class="w-5 h-5 text-[var(--builder-text-secondary)]"
-          />
-          <span class="text-[var(--builder-text-primary)] font-medium"
-            >{collection_name}</span
-          >
-          <span class="text-[var(--builder-text-secondary)] text-xs"
-            >{records.length} records</span
-          >
-          <button
-            onclick={download_collection}
-            class="p-1 text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] transition-colors"
-            title="Download JSON"
-          >
-            <Download class="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            onclick={start_edit_collection}
-            class="px-3 py-1.5 text-xs text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] transition-colors"
-          >
-            Edit
-          </button>
-          <button
-            onclick={start_add_record}
-            class="px-3 py-1.5 text-xs border border-[var(--builder-border)] hover:border-[var(--builder-text-secondary)] text-[var(--builder-text-secondary)] hover:text-[var(--builder-text-primary)] rounded transition-colors"
-          >
-            + Add
-          </button>
-        </div>
-      </div>
       <div class="flex-1 overflow-auto">
         {#if records.length > 0 && columns.length > 0}
-          <table class="w-full border-collapse">
-            <thead class="sticky top-0 bg-[var(--builder-bg-secondary)] z-10">
-              <tr class="border-b border-[var(--builder-border)]">
-                {#each columns as col}
-                  <th
-                    class="px-4 py-3 text-left text-xs text-[var(--builder-text-secondary)] font-normal whitespace-nowrap uppercase tracking-wide"
-                  >
-                    {col}
-                  </th>
-                {/each}
-                <th
-                  class="px-4 py-3 text-right text-xs text-[var(--builder-text-secondary)] font-normal w-28 uppercase tracking-wide"
-                ></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-[var(--builder-border)]">
-              {#each records as record, i (i)}
-                <tr
-                  onclick={() => start_edit_record(i)}
-                  class="hover:bg-[var(--builder-bg-secondary)] group transition-colors cursor-pointer"
-                >
+          <div class="min-w-full overflow-x-auto">
+            <table class="w-full border-collapse min-w-max">
+              <thead class="sticky top-0 bg-[var(--builder-bg-secondary)] z-10">
+                <tr class="border-b border-[var(--builder-border)]">
                   {#each columns as col}
-                    {@const val = record[col]}
-                    {@const col_type = get_column_type(
-                      file_content.schema,
-                      col,
-                    )}
-                    <td
-                      class="px-4 py-3 text-sm text-[var(--builder-text-primary)] max-w-xs truncate"
+                    <th
+                      class="px-3 py-2 text-left text-xs text-[var(--builder-text-secondary)] font-normal whitespace-nowrap uppercase tracking-wide"
                     >
-                      {#if val === null || val === undefined || val === ""}
-                        <span
-                          class="text-[var(--builder-text-secondary)] italic opacity-60"
-                          >—</span
-                        >
-                      {:else if col_type === "file" && typeof val === "string"}
-                        <div class="flex items-center gap-2">
-                          {#if is_image_file(val)}
-                            <img
-                              src={get_asset_url(val, "32x32")}
-                              alt=""
-                              class="w-8 h-8 rounded object-cover flex-shrink-0"
-                            />
-                          {:else}
-                            <div
-                              class="w-8 h-8 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center flex-shrink-0"
-                            >
-                              <File
-                                class="w-4 h-4 text-[var(--builder-text-secondary)]"
-                              />
-                            </div>
-                          {/if}
-                          <span class="truncate text-xs"
-                            >{get_display_name(val)}</span
+                      {col}
+                    </th>
+                  {/each}
+                  <th
+                    class="px-2 py-2 text-right text-xs text-[var(--builder-text-secondary)] font-normal w-10 uppercase tracking-wide"
+                  ></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[var(--builder-border)]">
+                {#each records as record, i (i)}
+                  <tr
+                    onclick={() => start_edit_record(i)}
+                    class="hover:bg-[var(--builder-bg-secondary)] group transition-colors cursor-pointer active:bg-[var(--builder-bg-tertiary)]"
+                  >
+                    {#each columns as col}
+                      {@const val = record[col]}
+                      {@const col_type = get_column_type(
+                        file_content.schema,
+                        col,
+                      )}
+                      <td
+                        class="px-3 py-2 text-sm text-[var(--builder-text-primary)] max-w-[180px] truncate"
+                      >
+                        {#if val === null || val === undefined || val === ""}
+                          <span
+                            class="text-[var(--builder-text-secondary)] italic opacity-60"
+                            >—</span
                           >
-                        </div>
-                      {:else if col_type === "files" && Array.isArray(val)}
-                        <div class="flex items-center gap-1">
-                          {#each val.slice(0, 3) as filename}
-                            {#if is_image_file(filename)}
+                        {:else if col_type === "file" && typeof val === "string"}
+                          <div class="flex items-center gap-2">
+                            {#if is_image_file(val)}
                               <img
-                                src={get_asset_url(filename, "24x24")}
+                                src={get_asset_url(val, "32x32")}
                                 alt=""
-                                class="w-6 h-6 rounded object-cover"
+                                class="w-8 h-8 rounded object-cover flex-shrink-0"
                               />
                             {:else}
                               <div
-                                class="w-6 h-6 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center"
+                                class="w-8 h-8 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center flex-shrink-0"
                               >
                                 <File
-                                  class="w-3 h-3 text-[var(--builder-text-secondary)]"
+                                  class="w-4 h-4 text-[var(--builder-text-secondary)]"
                                 />
                               </div>
                             {/if}
-                          {/each}
-                          {#if val.length > 3}
-                            <span
-                              class="text-xs text-[var(--builder-text-secondary)]"
-                              >+{val.length - 3}</span
+                            <span class="truncate text-xs"
+                              >{get_display_name(val)}</span
                             >
-                          {/if}
-                        </div>
-                      {:else if typeof val === "object"}
-                        <span
-                          class="text-[var(--builder-text-secondary)] font-mono text-xs"
-                          >{JSON.stringify(val)}</span
-                        >
-                      {:else if typeof val === "boolean"}
-                        <span
-                          class={val
-                            ? "text-orange-400"
-                            : "text-[var(--builder-text-secondary)]"}
-                          >{val}</span
-                        >
-                      {:else}
-                        {val}
-                      {/if}
-                    </td>
-                  {/each}
-                  <td
-                    class="px-4 py-3 text-right opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
-                  >
-                    <button
-                      onclick={(e) => {
-                        e.stopPropagation();
-                        delete_record(i);
-                      }}
-                      class="p-1.5 text-[var(--builder-text-secondary)] hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                      title="Delete record"
+                          </div>
+                        {:else if col_type === "files" && Array.isArray(val)}
+                          <div class="flex items-center gap-1">
+                            {#each val.slice(0, 3) as filename}
+                              {#if is_image_file(filename)}
+                                <img
+                                  src={get_asset_url(filename, "24x24")}
+                                  alt=""
+                                  class="w-6 h-6 rounded object-cover"
+                                />
+                              {:else}
+                                <div
+                                  class="w-6 h-6 rounded bg-[var(--builder-bg-tertiary)] flex items-center justify-center"
+                                >
+                                  <File
+                                    class="w-3 h-3 text-[var(--builder-text-secondary)]"
+                                  />
+                                </div>
+                              {/if}
+                            {/each}
+                            {#if val.length > 3}
+                              <span
+                                class="text-xs text-[var(--builder-text-secondary)]"
+                                >+{val.length - 3}</span
+                              >
+                            {/if}
+                          </div>
+                        {:else if typeof val === "object"}
+                          <span
+                            class="text-[var(--builder-text-secondary)] font-mono text-xs"
+                            >{JSON.stringify(val)}</span
+                          >
+                        {:else if col_type === "date" && typeof val === "string"}
+                          <span class="text-[var(--builder-text-secondary)]"
+                            >{new Date(val).toLocaleString()}</span
+                          >
+                        {:else if typeof val === "boolean"}
+                          <span
+                            class={val
+                              ? "text-orange-400"
+                              : "text-[var(--builder-text-secondary)]"}
+                            >{val}</span
+                          >
+                        {:else}
+                          {val}
+                        {/if}
+                      </td>
+                    {/each}
+                    <td
+                      class="px-2 py-2 text-right opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap"
                     >
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+                      <button
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          delete_record(i);
+                        }}
+                        class="p-1.5 text-[var(--builder-text-secondary)] hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                        title="Delete record"
+                      >
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
         {:else}
-          <div class="flex-1 flex items-center justify-center h-full">
-            <p class="text-[var(--builder-text-secondary)] text-sm">
-              No records in this collection
-            </p>
+          <div class="flex-1 flex items-center justify-center h-full p-4">
+            <div class="text-center">
+              <p class="text-[var(--builder-text-secondary)] text-sm mb-3">
+                No records in this collection
+              </p>
+              <Button variant="outline" size="sm" onclick={start_add_record}>
+                <Plus class="w-4 h-4 mr-1" />
+                Add first record
+              </Button>
+            </div>
           </div>
         {/if}
       </div>
     {:else if selected_file}
-      <div class="flex-1 flex items-center justify-center">
+      <div class="flex-1 flex items-center justify-center p-4">
         <p class="text-[var(--builder-text-secondary)] text-sm">Loading...</p>
       </div>
     {:else}
-      <div class="flex-1 flex items-center justify-center">
+      <div class="flex-1 flex items-center justify-center p-4">
         <div class="text-center text-[var(--builder-text-secondary)]">
-          <Database class="w-12 h-12 mx-auto mb-3 opacity-50" />
+          <Database class="w-10 h-10 mx-auto mb-3 opacity-50" />
           <p class="text-sm">Select a collection to view records</p>
         </div>
       </div>
@@ -792,7 +805,9 @@
 
   <!-- Create Collection Modal -->
   <Dialog.Root bind:open={show_create_collection}>
-    <Dialog.Content class="sm:max-w-lg">
+    <Dialog.Content
+      class="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto"
+    >
       <Dialog.Header>
         <Dialog.Title>Create New Collection</Dialog.Title>
         <Dialog.Description>
@@ -860,7 +875,7 @@
                 <Input
                   bind:value={column.name}
                   placeholder="Column name"
-                  class="flex-1"
+                  class="flex-1 min-w-0"
                 />
                 <Select.Root
                   type="single"
@@ -869,7 +884,7 @@
                     if (v) column.type = v;
                   }}
                 >
-                  <Select.Trigger class="w-28">
+                  <Select.Trigger class="w-24 md:w-28 flex-shrink-0">
                     {get_type_label(column.type)}
                   </Select.Trigger>
                   <Select.Content>
@@ -914,7 +929,9 @@
 
   <!-- Edit Collection Modal -->
   <Dialog.Root bind:open={show_edit_collection}>
-    <Dialog.Content class="sm:max-w-lg">
+    <Dialog.Content
+      class="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto"
+    >
       <Dialog.Header>
         <Dialog.Title>Edit Collection: {selected_file}</Dialog.Title>
         <Dialog.Description>
@@ -974,7 +991,7 @@
                 class="flex-1"
               />
               <div
-                class="w-28 px-3 py-2 text-sm border border-[var(--builder-border)] rounded-md bg-[var(--builder-bg-secondary)]"
+                class="w-16 px-3 mr-[4px] py-2 text-sm border border-[var(--builder-border)] rounded-md bg-[var(--builder-bg-secondary)]"
               >
                 {get_type_label(column.type)}
               </div>
@@ -996,7 +1013,7 @@
             {#each draggable_columns as column (column.id)}
               <div class="flex gap-2 items-center">
                 <div
-                  class="cursor-grab text-[var(--builder-text-secondary)] opacity-40 hover:opacity-80 transition-opacity"
+                  class="cursor-grab text-[var(--builder-text-secondary)] opacity-40 hover:opacity-80 transition-opacity touch-none"
                   title="Drag to reorder"
                 >
                   <Icon icon="ic:baseline-drag-handle" class="w-4 h-4" />
@@ -1004,7 +1021,7 @@
                 <Input
                   bind:value={column.name}
                   placeholder="Column name"
-                  class="flex-1"
+                  class="flex-1 min-w-0"
                 />
                 <Select.Root
                   type="single"
@@ -1013,7 +1030,7 @@
                     if (v) column.type = v;
                   }}
                 >
-                  <Select.Trigger class="w-28">
+                  <Select.Trigger class="w-24 md:w-28 flex-shrink-0">
                     {get_type_label(column.type)}
                   </Select.Trigger>
                   <Select.Content>
@@ -1041,6 +1058,18 @@
         </div>
 
         <Dialog.Footer class="pt-2">
+          <button
+            type="button"
+            onclick={() => {
+              if (selected_file) {
+                delete_collection(selected_file);
+                show_edit_collection = false;
+              }
+            }}
+            class="mr-auto text-xs text-[var(--builder-text-secondary)] hover:text-red-400 transition-colors"
+          >
+            Delete collection
+          </button>
           <Button
             type="button"
             variant="ghost"
@@ -1061,7 +1090,7 @@
 
   <!-- Edit Record Dialog -->
   <Dialog.Root bind:open={show_edit_dialog}>
-    <Dialog.Content class="sm:max-w-lg">
+    <Dialog.Content class="max-w-[95vw] sm:max-w-lg max-h-[90vh] flex flex-col">
       <Dialog.Header>
         <Dialog.Title>Edit Record</Dialog.Title>
         <Dialog.Description>
@@ -1078,7 +1107,9 @@
           }}
           class="flex flex-col gap-4 py-4 overflow-hidden min-w-0"
         >
-          <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 min-w-0 overflow-x-hidden">
+          <div
+            class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 min-w-0 overflow-x-hidden"
+          >
             {#each columns as col}
               {@const col_type = get_column_type(file_content.schema, col)}
               <div class="flex flex-col gap-1.5 min-w-0 overflow-hidden">
@@ -1102,7 +1133,7 @@
                   <Switch
                     checked={editing_record[col] === true}
                     onCheckedChange={(v) => {
-                      if (editing_record) editing_record[col] = v
+                      if (editing_record) editing_record[col] = v;
                     }}
                   />
                 {:else if col_type === "number"}
@@ -1116,9 +1147,21 @@
                         editing_record[col] = Number(e.currentTarget.value);
                     }}
                   />
+                {:else if col_type === "date"}
+                  <Input
+                    id="edit-{col}"
+                    type="datetime-local"
+                    value={editing_record[col] || ""}
+                    oninput={(e) => {
+                      if (editing_record)
+                        editing_record[col] = e.currentTarget.value;
+                    }}
+                  />
                 {:else if col_type === "json"}
                   <JsonEditor
-                    value={typeof editing_record[col] === "string" ? editing_record[col] : JSON.stringify(editing_record[col] ?? {}, null, 2)}
+                    value={typeof editing_record[col] === "string"
+                      ? editing_record[col]
+                      : JSON.stringify(editing_record[col] ?? {}, null, 2)}
                     onchange={(val) => {
                       if (editing_record) {
                         try {
@@ -1151,7 +1194,7 @@
 
   <!-- Add Record Dialog -->
   <Dialog.Root bind:open={show_add_form}>
-    <Dialog.Content class="sm:max-w-lg">
+    <Dialog.Content class="max-w-[95vw] sm:max-w-lg max-h-[90vh] flex flex-col">
       <Dialog.Header>
         <Dialog.Title>Add Record</Dialog.Title>
         <Dialog.Description>
@@ -1168,7 +1211,9 @@
           }}
           class="flex flex-col gap-4 py-4 overflow-hidden min-w-0"
         >
-          <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 min-w-0 overflow-x-hidden">
+          <div
+            class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1 min-w-0 overflow-x-hidden"
+          >
             {#each columns as col}
               {@const col_type = get_column_type(file_content.schema, col)}
               <div class="flex flex-col gap-1.5 min-w-0 overflow-hidden">
@@ -1192,7 +1237,7 @@
                   <Switch
                     checked={new_record[col] === true}
                     onCheckedChange={(v) => {
-                      new_record[col] = v
+                      new_record[col] = v;
                     }}
                   />
                 {:else if col_type === "number"}
@@ -1205,9 +1250,20 @@
                       new_record[col] = Number(e.currentTarget.value);
                     }}
                   />
+                {:else if col_type === "date"}
+                  <Input
+                    id="add-{col}"
+                    type="datetime-local"
+                    value={new_record[col] || ""}
+                    oninput={(e) => {
+                      new_record[col] = e.currentTarget.value;
+                    }}
+                  />
                 {:else if col_type === "json"}
                   <JsonEditor
-                    value={typeof new_record[col] === "string" ? new_record[col] : JSON.stringify(new_record[col] ?? {}, null, 2)}
+                    value={typeof new_record[col] === "string"
+                      ? new_record[col]
+                      : JSON.stringify(new_record[col] ?? {}, null, 2)}
                     onchange={(val) => {
                       try {
                         new_record[col] = JSON.parse(val);
