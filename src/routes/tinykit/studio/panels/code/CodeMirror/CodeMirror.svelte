@@ -739,6 +739,8 @@
             const newValue = update.state.doc.toString();
             // Track that this value came from the editor itself
             last_synced_value = newValue;
+            // Track when user last typed to prevent external sync interrupting
+            last_user_edit_time = Date.now();
             debounced_onChange(newValue);
           }
         }),
@@ -820,6 +822,8 @@
   let editor_ready = $state(false);
   // Track the last value we synced to the editor to avoid loops
   let last_synced_value = $state("");
+  // Track when user last typed to prevent external sync interrupting typing
+  let last_user_edit_time = $state(0);
 
   // Sync value when editor becomes ready or value changes externally
   watch(
@@ -829,6 +833,11 @@
         const editorContent = editorView.state.doc.toString();
         // Only update if value changed externally (not from editor itself)
         if (newValue !== editorContent && newValue !== last_synced_value) {
+          // Skip sync if user typed recently (within 300ms) to prevent cursor jump
+          // This handles the race condition between debounced onChange and external updates
+          if (Date.now() - last_user_edit_time < 300) {
+            return;
+          }
           console.log(
             "[CodeMirror] Syncing external value change, length:",
             newValue.length,
