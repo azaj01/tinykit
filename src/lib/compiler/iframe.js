@@ -310,10 +310,27 @@ export default db
 
 /**
  * Generate the $tinykit module code (tinykit utilities)
+ * @param {string} project_id
  * @returns {string}
  */
-const generate_tinykit_module = () => {
+const generate_tinykit_module = (project_id) => {
   return `
+const PROJECT_ID = '${project_id}'
+
+/**
+ * Get the URL for an uploaded asset file
+ * @param {string} filename - The filename stored in the record
+ * @returns {string} The full URL to the asset
+ */
+export function asset(filename) {
+  if (!filename) return ''
+  // If it's already a full URL (e.g., from external source), return as-is
+  if (filename.startsWith('http://') || filename.startsWith('https://')) {
+    return filename
+  }
+  return '/_tk/assets/' + PROJECT_ID + '/' + filename
+}
+
 /**
  * Fetch external resources through the tinykit proxy (bypasses CORS)
  * @param {string} url - The URL to fetch
@@ -401,7 +418,7 @@ export const dynamic_iframe_srcdoc = (head, broadcast_id, options = {}) => {
   const content_module = `export default ${JSON.stringify(content_obj)}`;
   const design_module = `export default ${JSON.stringify(design_obj)}`;
   const data_module = generate_data_module(project_id, data_collections);
-  const tk_module = generate_tinykit_module();
+  const tk_module = generate_tinykit_module(project_id);
   const content_url = `data:text/javascript,${encodeURIComponent(content_module)}`;
   const design_url = `data:text/javascript,${encodeURIComponent(design_module)}`;
   const data_url = `data:text/javascript,${encodeURIComponent(data_module)}`;
