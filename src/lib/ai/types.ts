@@ -48,6 +48,7 @@ export const TOKEN_PRICING: Record<string, { input: number; output: number }> = 
 	'o4-mini': { input: 0.15, output: 0.60 },
 	// Gemini models - https://ai.google.dev/pricing
 	'gemini-3-pro-preview': { input: 2.00, output: 12.00 },
+	'gemini-3-flash-preview': { input: 0.50, output: 3.00 },
 	'gemini-2.5-pro': { input: 1.25, output: 10.00 },
 	'gemini-2.5-flash': { input: 0.30, output: 2.50 },
 	'gemini-2.5-flash-lite': { input: 0.075, output: 0.30 },

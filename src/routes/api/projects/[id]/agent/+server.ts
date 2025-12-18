@@ -73,6 +73,69 @@ function formatError(error: any): string {
 	return `AI service error: ${errorStr.slice(0, 200)}`
 }
 
+// Generate a one-line summary of what the agent did
+async function generateSummary(
+	llmConfig: { provider: LLMProvider; apiKey: string; model: string; baseUrl?: string },
+	agentResponse: string,
+	toolCalls: Array<{ name: string; args?: Record<string, any> }>
+): Promise<string> {
+	try {
+		const { generateText } = await import('ai')
+		const { createOpenAI } = await import('@ai-sdk/openai')
+		const { createAnthropic } = await import('@ai-sdk/anthropic')
+		const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+
+		// Build context about what happened
+		const toolSummary = toolCalls.length > 0
+			? `Tools used: ${toolCalls.map(t => t.name).join(', ')}`
+			: 'No tools used'
+
+		const prompt = `Summarize what was done in ONE short sentence (max 60 chars). Be specific about the change, not generic.
+
+Agent response: ${agentResponse.slice(0, 500)}
+${toolSummary}
+
+Examples of good summaries:
+- "Added login form with email/password"
+- "Fixed button hover color"
+- "Created products data table"
+- "Updated header text to 'Welcome'"
+
+One-line summary:`
+
+		// Use the cheapest available model for each provider
+		let model
+		if (llmConfig.provider === 'anthropic') {
+			const anthropic = createAnthropic({ apiKey: llmConfig.apiKey })
+			model = anthropic('claude-3-5-haiku-latest')
+		} else if (llmConfig.provider === 'gemini') {
+			const google = createGoogleGenerativeAI({ apiKey: llmConfig.apiKey })
+			model = google('gemini-2.0-flash-lite')
+		} else {
+			// OpenAI or OpenAI-compatible providers
+			const openai = createOpenAI({
+				apiKey: llmConfig.apiKey,
+				baseURL: llmConfig.baseUrl
+			})
+			// If using custom base URL, use the configured model (might be the only one available)
+			// Otherwise use gpt-4o-mini for OpenAI
+			const cheapModel = llmConfig.baseUrl ? llmConfig.model : 'gpt-4o-mini'
+			model = openai(cheapModel)
+		}
+
+		const result = await generateText({
+			model,
+			prompt
+		})
+
+		const summary = result.text.trim().replace(/^["']|["']$/g, '').slice(0, 80)
+		return summary || 'Made changes'
+	} catch (error) {
+		console.error('[Summary] Failed to generate:', error)
+		return 'Made changes'
+	}
+}
+
 // GET - Get agent history
 export const GET: RequestHandler = async ({ params, request }) => {
 	const user = await validateUserToken(request)
@@ -184,17 +247,13 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
 		// Mark agent as running
 		runningAgents.set(projectId, true)
 
-		// Create snapshot before agent makes changes
-		const truncatedPrompt = userPrompt.length > 60 ? userPrompt.slice(0, 60) + '...' : userPrompt
-		createSnapshot(projectId, `Before: ${truncatedPrompt}`).catch(console.error)
-
 		// Convert to AgentMessage format for LLM
 		const conversationHistory: AgentMessage[] = agentMessages
 			.filter((m: any) => m.role === 'user' || (m.role === 'assistant' && m.content))
 			.map((m: any) => ({ role: m.role, content: m.content }))
 
 		// Fire-and-forget: run agent in background
-		runAgentInBackground(projectId, llmConfig, agentMessages, assistantMsgIndex, conversationHistory, spec, truncatedPrompt)
+		runAgentInBackground(projectId, llmConfig, agentMessages, assistantMsgIndex, conversationHistory, spec)
 
 		// Return immediately
 		return json({ started: true, status: 'running' })
@@ -216,8 +275,7 @@ async function runAgentInBackground(
 	agentMessages: any[],
 	assistantMsgIndex: number,
 	conversationHistory: AgentMessage[],
-	spec: string,
-	truncatedPrompt: string
+	spec: string
 ) {
 	let fullResponse = ''
 	const toolCalls: Array<{ id: string; name: string; args?: Record<string, any>; result?: string }> = []
@@ -339,8 +397,10 @@ async function runAgentInBackground(
 			agent_status: 'idle'
 		})
 
-		// Create snapshot after
-		await createSnapshot(projectId, `After: ${truncatedPrompt}`)
+		// Generate summary and create snapshot with tool names
+		const summary = await generateSummary(llmConfig, fullResponse, toolCalls)
+		const toolNames = toolCalls.map(t => t.name)
+		await createSnapshot(projectId, summary, toolNames)
 
 	} catch (error: any) {
 		console.error('[Agent] Background execution failed:', error)

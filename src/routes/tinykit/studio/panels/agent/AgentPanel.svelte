@@ -406,6 +406,7 @@
 <div class="h-full flex flex-col text-sm relative">
   <!-- Message History -->
   <div
+    in:fade={{ duration: 200 }}
     bind:this={message_container}
     onscroll={handle_message_scroll}
     class="flex-1 overflow-y-auto p-3 space-y-3"
@@ -474,78 +475,89 @@
                 {#if message.stream_items && message.stream_items.length > 0}
                   <!-- Render items in stream order -->
                   {#each message.stream_items as item}
+                    {@const is_text = item.type === "text"}
                     {@const is_tool = item.type === "tool"}
-                    <div in:fade class:tool-button-container={is_tool}>
-                      {#if item.type === "text"}
+                    <div in:fade class="message-container">
+                      {#if is_text}
                         <div class={prose_classes}>
                           {@html render_markdown(item.content || "")}
                         </div>
                       {:else if is_tool}
                         {@const tool_name = item.name || "unknown"}
+                        {@const tool_result = item.result || ""}
                         {@const field_name = extract_field_name(
                           tool_name,
-                          item.result || "",
+                          tool_result,
                         )}
-                        {#if tool_name === "update_spec" || tool_name === "name_project"}
-                          <!-- Silent tools - no UI shown -->
-                        {:else if tool_name === "create_content_field"}
-                          <button
-                            onclick={() => {
-                              store.refresh();
-                              on_navigate_to_field(
-                                "content",
-                                field_name || undefined,
-                              );
-                            }}
-                            class="tool-button tool-button--content tool-button--interactive"
-                          >
-                            <FileText class="w-3 h-3" />
-                            <span>{field_name || "Content"}</span>
-                          </button>
-                        {:else if tool_name === "create_design_field"}
-                          <button
-                            onclick={() => {
-                              store.refresh();
-                              on_navigate_to_field(
-                                "design",
-                                field_name || undefined,
-                              );
-                            }}
-                            class="tool-button tool-button--design tool-button--interactive"
-                          >
-                            <Palette class="w-3 h-3" />
-                            <span>{field_name || "Design"}</span>
-                          </button>
-                        {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
-                          <button
-                            onclick={() => {
-                              on_navigate_to_field(
-                                "data",
-                                field_name || undefined,
-                              );
-                              store.refresh();
-                            }}
-                            class="tool-button tool-button--data tool-button--interactive"
-                          >
-                            <Database class="w-3 h-3" />
-                            <span>{field_name || "Data"}</span>
-                          </button>
-                        {:else if tool_name === "write_code"}
-                          <button
-                            onclick={() => {
-                              // Navigate to code tab
-                              on_navigate_to_field("code");
-                            }}
-                            class="tool-button tool-button--code tool-button--interactive"
-                          >
-                            <Code class="w-3 h-3" />
-                            <span>Code</span>
-                          </button>
-                        {:else}
-                          <div in:fade class="tool-button tool-button--success">
-                            <iconify-icon icon="lucide:check" class="w-3 h-3"
-                            ></iconify-icon>
-                            <span>{tool_name}</span>
+                        {@const is_duplicate =
+                          tool_result.includes("already exists")}
+                        {#if !(is_duplicate || tool_name === "update_spec" || tool_name === "name_project")}
+                          <div in:fade class="tool-button-container">
+                            {#if tool_name === "create_content_field"}
+                              <button
+                                onclick={() => {
+                                  store.refresh();
+                                  on_navigate_to_field(
+                                    "content",
+                                    field_name || undefined,
+                                  );
+                                }}
+                                class="tool-button tool-button--content tool-button--interactive"
+                              >
+                                <FileText class="w-3 h-3" />
+                                <span>{field_name || "Content"}</span>
+                              </button>
+                            {:else if tool_name === "create_design_field"}
+                              <button
+                                onclick={() => {
+                                  store.refresh();
+                                  on_navigate_to_field(
+                                    "design",
+                                    field_name || undefined,
+                                  );
+                                }}
+                                class="tool-button tool-button--design tool-button--interactive"
+                              >
+                                <Palette class="w-3 h-3" />
+                                <span>{field_name || "Design"}</span>
+                              </button>
+                            {:else if tool_name === "create_data_file" || tool_name === "insert_records"}
+                              <button
+                                onclick={() => {
+                                  on_navigate_to_field(
+                                    "data",
+                                    field_name || undefined,
+                                  );
+                                  store.refresh();
+                                }}
+                                class="tool-button tool-button--data tool-button--interactive"
+                              >
+                                <Database class="w-3 h-3" />
+                                <span>{field_name || "Data"}</span>
+                              </button>
+                            {:else if tool_name === "write_code"}
+                              <button
+                                onclick={() => {
+                                  // Navigate to code tab
+                                  on_navigate_to_field("code");
+                                }}
+                                class="tool-button tool-button--code tool-button--interactive"
+                              >
+                                <Code class="w-3 h-3" />
+                                <span>Code</span>
+                              </button>
+                            {:else}
+                              <div
+                                in:fade
+                                class="tool-button tool-button--success"
+                              >
+                                <iconify-icon
+                                  icon="lucide:check"
+                                  class="w-3 h-3"
+                                ></iconify-icon>
+                                <span>{tool_name}</span>
+                              </div>
+                            {/if}
                           </div>
                         {/if}
                       {/if}
@@ -652,6 +664,13 @@
     to {
       opacity: 1;
     }
+  }
+
+  .message-container {
+    display: inline-flex;
+  }
+  .message-container:empty {
+    display: none;
   }
 
   /* Tool button base styles */

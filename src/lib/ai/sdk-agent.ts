@@ -3,7 +3,14 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { z } from 'zod'
-import { getProject, updateProject } from '$lib/server/pb'
+import {
+	getProject,
+	updateProject,
+	addContentField,
+	addDesignField,
+	addDataCollection,
+	insertDataRecords
+} from '$lib/server/pb'
 
 export type LLMProvider = 'openai' | 'anthropic' | 'gemini'
 
@@ -48,17 +55,18 @@ Response format:
    - Just answer directly
 
 Tool calling rules:
-- NEVER show tool arguments as JSON in code blocks
-- DO NOT explain what tools you're calling
-- Just call them silently
-- Tools appear as badges automatically
+- Use the native function calling API to invoke tools - NEVER write tool calls as text or code
+- DO NOT show tool names, arguments, or JSON in your response text
+- DO NOT write "import { tool_name }" or "tool_name({ ... })" - that's wrong
+- After your brief plan, invoke tools using the API (they appear as badges in the UI)
 
-WRONG: Immediately calling write_code without ANY explanation ❌
-WRONG: Showing \`\`\`json {...}\`\`\` ❌
-RIGHT: Brief text → then tools ✅
+WRONG: Writing \`write_code({ code: "..." })\` as text ❌
+WRONG: Showing \`\`\`json {...}\`\`\` or \`\`\`javascript import {...}\`\`\` ❌
+WRONG: Simulating tool calls in your response ❌
+RIGHT: Brief explanation → then invoke tools via function calling API ✅
 
 ## Architecture
-- Single Svelte 5 file with standard CSS in <style>
+- Single Svelte 5 file with standard CSS in <style global> (make sure you use this so styles are global!)
 - NO Tailwind/utility classes - use semantic class names (.card, .button)
 - Data via \`import data from '$data'\` with realtime subscriptions
 - Content via \`import content from '$content'\` for editable text
@@ -141,9 +149,13 @@ create_data_file({
 
 **Placeholders:** Use for demo data - "placeholder.jpg" (square), "placeholder-avatar.jpg" (avatar), "placeholder-wide.jpg" (16:9)
 
-**Display images:** File field values are filenames, use asset URL pattern:
+**Display images:** File field values are filenames, use the \`asset()\` helper from \`$tinykit\`:
 \`\`\`svelte
-<img src="/_tk/assets/{product.image}" alt={product.name} />
+<script>
+  import { asset } from '$tinykit'
+</script>
+<img src={asset(product.image)} alt={product.name} />
+<!-- With thumbnail: asset(product.image, { thumb: '200x200' }) -->
 \`\`\`
 
 **File uploads in app UI:** Use a file input, then pass File object to create/update - auto-uploaded:
@@ -177,20 +189,23 @@ const rss = await proxy.text('https://hnrss.org/frontpage')
 3. IMMEDIATELY after write_code, create design fields for colors/fonts/radii and content fields for text
 
 ## Design Fields
-Use CSS vars with fallbacks in code, then create fields:
+Design fields are auto-injected as CSS variables. Just USE them with fallbacks:
 \`\`\`css
 .card { background: var(--card-bg, #ffffff); }
 \`\`\`
-Types: color, font, radius, shadow, size, text.
+Then call create_design_field to make them editable. Types: color, font, radius, shadow, size, text.
 
-## Content Fields
-Reference in code, then create:
+## Content Fields (REQUIRED for all user-facing text)
+NEVER hardcode text users might want to edit. Use content fields for: titles, buttons, labels, placeholders, empty states, messages, nav items.
 \`\`\`svelte
 <h1>{content.hero_title}</h1>
+<button>{content.add_button}</button>
+<p class="empty">{content.no_items_message}</p>
+<img src={content.hero_image} />
 \`\`\`
-Extract ALL text: titles, buttons, placeholders, empty states, messages.
 
 ## Common Mistakes (AVOID)
+- Hardcoding "Submit", "Welcome" → use content fields for user-facing text
 - \`$derived(items.filter(...))\` → use \`$derived.by(() => items.filter(...))\` for callbacks
 - \`result.sort()\` in $derived → use \`[...result].sort()\` (sort mutates, copy first)
 - \`on:click\` → use \`onclick\` (Svelte 5)
@@ -199,7 +214,14 @@ Extract ALL text: titles, buttons, placeholders, empty states, messages.
 
 ## UX Polish
 - Use \`transition:fade={{ duration: 100 }}\` for dialogs and list items
-- Import: \`import { fade } from 'svelte/transition'\``
+- Import: \`import { fade } from 'svelte/transition'\`
+
+## NPM Packages
+Any npm package works with bare imports - auto-resolved via esm.sh:
+\`\`\`javascript
+import dayjs from 'dayjs'
+import confetti from 'canvas-confetti'
+\`\`\``
 
 function get_model(config: AgentConfig) {
 	switch (config.provider) {
@@ -240,8 +262,9 @@ function create_tools(project_id: string, project_name: string) {
 					.replace(/\{\/\#await\}/g, '{/await}')
 					// Fix {/#key} → {/key}
 					.replace(/\{\/\#key\}/g, '{/key}')
+					// Strip :root blocks - design system injects CSS vars at runtime
+					.replace(/:root\s*\{[^}]*\}/g, '')
 
-				console.log('TOOL - WRITE_CODE')
 				// Note: onToolCall is triggered by stream events, not here (avoids duplicates)
 				await updateProject(project_id, { frontend_code: cleaned_code })
 
@@ -259,23 +282,11 @@ function create_tools(project_id: string, project_name: string) {
 				description: z.string().optional().describe('Optional description of what this field is for')
 			}),
 			execute: async ({ name, type, value, description }: { name: string; type: string; value: string; description?: string }) => {
-				const project = await getProject(project_id)
-				if (!project) throw new Error('Project not found')
-				const fields = project.content || []
-
-				// Check for duplicates
-				if (fields.find((f: any) => f.name === name)) {
+				// Use atomic operation to prevent race conditions when creating multiple fields
+				const result = await addContentField(project_id, { name, type, value, description })
+				if (!result) {
 					return `Content field "${name}" already exists`
 				}
-
-				fields.push({
-					id: crypto.randomUUID().slice(0, 5),
-					name,
-					type,
-					value: type === 'boolean' ? value === 'true' : value,
-					description: description || ''
-				})
-				await updateProject(project_id, { content: fields })
 				return `Created content field "${name}" (${type}) with value: ${value}`
 			}
 		}),
@@ -295,37 +306,14 @@ Example: If code uses var(--font-main), pass css_var: "--font-main"`,
 				description: z.string().optional().describe('Optional description of what this design field controls')
 			}),
 			execute: async ({ name, css_var: explicit_css_var, type, value, description }: { name: string; css_var?: string; type: string; value: string; description?: string }) => {
-				const project = await getProject(project_id)
-				if (!project) throw new Error('Project not found')
-				const design = project.design || []
-
 				// Use explicit css_var if provided, otherwise auto-generate from name
 				const css_var = explicit_css_var || ('--' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''))
 
-				// Check for duplicates
-				if (design.find((f: any) => f.css_var === css_var)) {
+				// Use atomic operation to prevent race conditions when creating multiple fields
+				const result = await addDesignField(project_id, { name, css_var, type, value, description })
+				if (!result) {
 					return `Design field with CSS variable "${css_var}" already exists`
 				}
-
-				const new_field: any = {
-					id: crypto.randomUUID().slice(0, 5),
-					name,
-					css_var,
-					value,
-					type,
-					description: description || ''
-				}
-
-				if (type === 'size' || type === 'radius') {
-					new_field.unit = 'px'
-					if (type === 'radius') {
-						new_field.min = 0
-						new_field.max = 50
-					}
-				}
-
-				design.push(new_field)
-				await updateProject(project_id, { design })
 				return `Created ${type} design field "${name}" (${css_var}) with value: ${value}`
 			}
 		}),
@@ -352,43 +340,15 @@ For file fields, use placeholder images for demo data: "placeholder.jpg" (square
 				icon: z.string().optional().describe('Iconify icon ID for the collection (e.g., "lucide:users", "lucide:shopping-cart", "lucide:file-text")'),
 				description: z.string().optional().describe('Optional description of what this collection stores')
 			}),
-			execute: async ({ filename, schema: explicit_schema, initial_data, icon }: { filename: string; schema: Array<{ name: string; type: string }>; initial_data: string; icon?: string; description?: string }) => {
-				const project = await getProject(project_id)
-				if (!project) throw new Error('Project not found')
-				const current_data = project.data || {}
-
-				if (current_data[filename]) {
-					return `Collection "${filename}" already exists`
-				}
-
+			execute: async ({ filename, schema, initial_data, icon }: { filename: string; schema: Array<{ name: string; type: string }>; initial_data: string; icon?: string; description?: string }) => {
 				const records = JSON.parse(initial_data)
 				if (!Array.isArray(records)) {
 					throw new Error('initial_data must be a JSON array')
 				}
 
-				// Add IDs to records if not provided
-				const now = new Date().toISOString()
-				const records_with_ids = records.map(r => ({
-					id: r.id || crypto.randomUUID().slice(0, 5),
-					...r,
-					created: r.created || now,
-					updated: r.updated || now
-				}))
-
-				// Ensure id column exists at the beginning with type 'id'
-				let schema = [...explicit_schema]
-				const has_id = schema.some(col => col.name === 'id')
-				if (!has_id) {
-					schema.unshift({ name: 'id', type: 'id' })
-				} else {
-					// Move id to front and ensure type is 'id'
-					schema = schema.filter(col => col.name !== 'id')
-					schema.unshift({ name: 'id', type: 'id' })
-				}
-
-				current_data[filename] = { schema, records: records_with_ids, icon }
-				await updateProject(project_id, { data: current_data })
-				return `Created collection "${filename}" with ${records.length} records`
+				// Use atomic operation to prevent race conditions
+				const result = await addDataCollection(project_id, { filename, schema, records, icon })
+				return result.message
 			}
 		}),
 
@@ -399,37 +359,14 @@ For file fields, use placeholder images for demo data: "placeholder.jpg" (square
 				records: z.string().describe('JSON array of records to insert')
 			}),
 			execute: async ({ collection, records: records_json }: { collection: string; records: string }) => {
-				const project = await getProject(project_id)
-				if (!project) throw new Error('Project not found')
-				const current_data = project.data || {}
-
-				if (!current_data[collection]) {
-					return `Collection "${collection}" does not exist`
-				}
-
-				const new_records = JSON.parse(records_json)
-				if (!Array.isArray(new_records)) {
+				const records = JSON.parse(records_json)
+				if (!Array.isArray(records)) {
 					throw new Error('records must be a JSON array')
 				}
 
-				const now = new Date().toISOString()
-				const new_records_with_ids = new_records.map(r => ({
-					id: r.id || crypto.randomUUID().slice(0, 5),
-					...r,
-					created: r.created || now,
-					updated: r.updated || now
-				}))
-
-				const collection_data = current_data[collection]
-				const existing = Array.isArray(collection_data) ? collection_data : (collection_data.records || [])
-				const all_records = [...existing, ...new_records_with_ids]
-
-				current_data[collection] = {
-					schema: collection_data.schema || [],
-					records: all_records
-				}
-				await updateProject(project_id, { data: current_data })
-				return `Inserted ${new_records.length} records into "${collection}"`
+				// Use atomic operation to prevent race conditions
+				const result = await insertDataRecords(project_id, collection, records)
+				return result.message
 			}
 		}),
 
@@ -525,42 +462,32 @@ export async function run_agent(
 	const seen_tool_calls = new Set<string>()
 
 	for await (const part of result.fullStream) {
-		// Log ALL event types to see what's happening
-		const partStr = JSON.stringify(part)
-		console.log('[SDK fullStream EVENT]', part.type, partStr.length > 300 ? partStr.slice(0, 300) + '...' : partStr)
-
 		if (part.type === 'text-delta') {
 			full_text += part.text
 			callbacks?.onText?.(part.text)
 		} else if (part.type === 'tool-input-start') {
-			// Tool input streaming is starting
 			const inputStart = part as any
-			console.log('[SDK tool-input-start] toolName:', inputStart.toolName, 'id:', inputStart.toolCallId)
 			callbacks?.onToolCallStart?.(inputStart.toolCallId, inputStart.toolName)
 		} else if (part.type === 'tool-call') {
-			console.log('[SDK tool-call] toolName:', part.toolName, 'toolCallId:', (part as any).toolCallId)
 			// Dedupe tool calls by toolCallId
 			const toolCallId = (part as any).toolCallId
 			if (toolCallId && seen_tool_calls.has(toolCallId)) continue
 			if (toolCallId) seen_tool_calls.add(toolCallId)
-
 			callbacks?.onToolCall?.(toolCallId, part.toolName, (part as any).input || {})
 		} else if (part.type === 'tool-result') {
-			// AI SDK stores tool results in 'output', not 'result'
+			// AI SDK 5.x uses 'output' property for tool results
 			const resultValue = (part as any).output
-			if (resultValue === undefined) {
-				console.log('[SDK tool-result] SKIPPING - output is undefined')
-				continue
-			}
+			if (resultValue === undefined) continue
 			const toolCallId = (part as any).toolCallId
-			console.log('[SDK tool-result] Sending to client:', part.toolName, String(resultValue).slice(0, 100))
 			callbacks?.onToolResult?.(toolCallId, part.toolName, String(resultValue))
+		} else if (part.type === 'tool-error') {
+			const toolError = part as any
+			console.error('[Agent] Tool failed:', toolError.toolName, toolError.error)
+			callbacks?.onError?.(new Error(`Tool ${toolError.toolName} failed: ${toolError.error}`))
 		} else if (part.type === 'finish') {
-			// Stream finished - log finish reason
 			const finishReason = (part as any).finishReason
-			console.log('[SDK finish] Finish reason:', finishReason, 'Full text length:', full_text.length)
 			if (finishReason === 'length') {
-				console.warn('[SDK finish] WARNING: Response was cut off due to max token limit!')
+				console.warn('[Agent] Response cut off due to max token limit')
 			}
 		}
 	}
