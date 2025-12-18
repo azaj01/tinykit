@@ -186,10 +186,8 @@
 	let project_domain = $derived(store.project?.domain || "");
 
 	let is_deploying = $state(false);
-	// Vibe settings from store project settings
-	let vibe_zone_enabled = $derived(
-		store.project?.settings?.vibe_zone_enabled ?? true,
-	);
+	// Vibe settings from global _tk_settings
+	let vibe_zone_enabled = $state(true);
 
 	let vibe_zone_visible = $state(false);
 	let vibe_zone_fullscreen = $state(false);
@@ -344,6 +342,11 @@
 			vibe_zone_fullscreen = true;
 		}
 
+		// Load vibe zone enabled from global settings
+		storage.load_vibe_zone_enabled().then((enabled) => {
+			vibe_zone_enabled = enabled;
+		});
+
 		return () => {
 			window.removeEventListener(
 				"tinykit:fix-error",
@@ -363,24 +366,11 @@
 		};
 	}
 
-	// Save vibe zone preference to project settings
-	$effect(() => {
-		if (typeof window !== "undefined" && !store.loading && project_id) {
-			// Note: this might create a loop if we are not careful, but store update is one-way from server usually
-			// Only update if changed by user?
-			// Actually, let's keep it simple: Vibe toggle updates via API in VibeZone/Header if needed
-			// But here we just derived it from store.
-			// The original code synced local state to API.
-			// We should perhaps move toggle logic to Header/VibeZone directly calling API.
-		}
-	});
-
 	// Toggle vibe lounge function
-	function toggle_vibe_lounge() {
-		const current = store.project?.settings?.vibe_zone_enabled ?? true;
-		api.update_project_settings(project_id, {
-			vibe_zone_enabled: !current,
-		}).catch(console.error);
+	async function toggle_vibe_lounge() {
+		const new_value = !vibe_zone_enabled;
+		vibe_zone_enabled = new_value;
+		await storage.save_vibe_zone_enabled(new_value);
 	}
 
 	// Save vibe zone fullscreen preference to localStorage
@@ -565,6 +555,7 @@
 			on_load_templates={handle_load_templates}
 			on_download_project={handle_download_project}
 			on_reset_project={handle_reset_project}
+			on_toggle_vibe_zone={toggle_vibe_lounge}
 		/>
 	</div>
 
@@ -615,7 +606,7 @@
 	{#snippet preview_pane()}
 		<div class="relative h-full w-full">
 			<Preview {project_id} />
-			{#if vibe_zone_visible && !vibe_zone_fullscreen}
+			{#if vibe_zone_visible && vibe_zone_enabled && !vibe_zone_fullscreen}
 				<VibeZone
 					userPrompt={vibe_user_prompt}
 					enabled={vibe_zone_enabled}
@@ -894,8 +885,8 @@
 	<div class="flex md:hidden flex-col flex-1 overflow-hidden">
 		<!-- Mobile Top Toolbar -->
 		<Header
-			bind:project_title
-			bind:vibe_zone_enabled
+			{project_title}
+			{vibe_zone_enabled}
 			bind:preview_position
 			{project_domain}
 			{is_deploying}
@@ -908,6 +899,7 @@
 			on_load_templates={handle_load_templates}
 			on_download_project={handle_download_project}
 			on_reset_project={handle_reset_project}
+			on_toggle_vibe_zone={toggle_vibe_lounge}
 			is_mobile={true}
 		/>
 
@@ -1006,7 +998,7 @@
 	{/if}
 </div>
 
-{#if vibe_zone_visible && vibe_zone_fullscreen}
+{#if vibe_zone_visible && vibe_zone_enabled && vibe_zone_fullscreen}
 	<VibeZone
 		userPrompt={vibe_user_prompt}
 		enabled={vibe_zone_enabled}

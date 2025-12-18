@@ -150,6 +150,43 @@
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
   }
+
+  function format_tools(tools?: string[]): string {
+    if (!tools || tools.length === 0) return "";
+
+    const counts: Record<string, number> = {};
+    for (const tool of tools) {
+      counts[tool] = (counts[tool] || 0) + 1;
+    }
+
+    const parts: string[] = [];
+
+    // Code changes
+    if (counts["write_code"]) {
+      parts.push("Code");
+    }
+
+    // Design fields
+    const design_count = (counts["create_design_field"] || 0) + (counts["update_design_field"] || 0);
+    if (design_count > 0) {
+      parts.push(`${design_count} design`);
+    }
+
+    // Content fields
+    const content_count = (counts["create_content_field"] || 0) + (counts["update_content_field"] || 0);
+    if (content_count > 0) {
+      parts.push(`${content_count} content`);
+    }
+
+    // Data operations
+    const data_count = (counts["create_data_table"] || 0) + (counts["add_data_record"] || 0) +
+                       (counts["update_data_record"] || 0) + (counts["delete_data_record"] || 0);
+    if (data_count > 0) {
+      parts.push(`${data_count} data`);
+    }
+
+    return parts.join(", ");
+  }
 </script>
 
 <div class="h-full flex flex-col overflow-hidden">
@@ -217,7 +254,7 @@
                   {snapshot.description}
                 </p>
                 <p class="text-xs text-[var(--builder-text-secondary)] mt-1">
-                  {format_time_ago(snapshot.timestamp)} · {snapshot.file_count} files
+                  {format_time_ago(snapshot.timestamp)}{#if format_tools(snapshot.tools)} · {format_tools(snapshot.tools)}{/if}
                 </p>
               </div>
               <div

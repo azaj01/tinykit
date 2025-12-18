@@ -1,5 +1,6 @@
 // Storage helpers for tinykit admin interface
 import type { AgentMessage } from "../types"
+import { pb } from "$lib/pocketbase.svelte"
 
 const MESSAGES_KEY = "agent-messages"
 
@@ -28,16 +29,31 @@ export function clear_messages(): void {
 	localStorage.removeItem(MESSAGES_KEY)
 }
 
-// Vibe zone preference (stored in localStorage as UI preference)
-const VIBE_ZONE_KEY = "vibe-zone-enabled"
+// Vibe zone preference (stored in _tk_settings collection)
+const VIBE_ZONE_SETTING_KEY = "vibe_zone"
+
+function get_auth_headers(): Record<string, string> {
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json'
+	}
+	if (pb.authStore.token) {
+		headers['Authorization'] = `Bearer ${pb.authStore.token}`
+	}
+	return headers
+}
 
 export async function load_vibe_zone_enabled(): Promise<boolean> {
 	if (typeof window === "undefined") return true
 
 	try {
-		const saved = localStorage.getItem(VIBE_ZONE_KEY)
-		if (saved !== null) {
-			return saved === "true"
+		const res = await fetch(`/api/settings?key=${VIBE_ZONE_SETTING_KEY}`, {
+			headers: get_auth_headers()
+		})
+		if (res.ok) {
+			const data = await res.json()
+			if (data.value !== null && typeof data.value.enabled === 'boolean') {
+				return data.value.enabled
+			}
 		}
 	} catch (e) {
 		console.error("Failed to load vibe_zone_enabled:", e)
@@ -49,7 +65,14 @@ export async function save_vibe_zone_enabled(enabled: boolean): Promise<void> {
 	if (typeof window === "undefined") return
 
 	try {
-		localStorage.setItem(VIBE_ZONE_KEY, String(enabled))
+		await fetch('/api/settings', {
+			method: 'POST',
+			headers: get_auth_headers(),
+			body: JSON.stringify({
+				key: VIBE_ZONE_SETTING_KEY,
+				value: { enabled }
+			})
+		})
 	} catch (e) {
 		console.error("Failed to save vibe_zone_enabled:", e)
 	}

@@ -164,14 +164,28 @@ export function get_tints(hex: string, count: number = 3): string[] {
 	return colors
 }
 
+// Simple memoization cache for palette generation
+let palette_cache: Map<string, string[]> = new Map()
+const MAX_CACHE_SIZE = 50
+
 /**
  * Generate a harmonious palette from theme colors
  * Priority: theme colors first, then complementary/analogous to fill
+ * Memoized to prevent expensive recalculation on every render
  */
 export function generate_smart_palette(
 	theme_colors: string[],
 	target_count: number = 24
 ): string[] {
+	// Create cache key from inputs
+	const cache_key = theme_colors.join(',') + ':' + target_count
+	const cached = palette_cache.get(cache_key)
+	if (cached) return cached
+
+	// Clear cache if too large
+	if (palette_cache.size > MAX_CACHE_SIZE) {
+		palette_cache.clear()
+	}
 	const palette: string[] = []
 	const seen = new Set<string>()
 
@@ -250,6 +264,8 @@ export function generate_smart_palette(
 		add_color(neutral)
 	}
 
+	// Cache the result
+	palette_cache.set(cache_key, palette)
 	return palette
 }
 

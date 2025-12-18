@@ -124,7 +124,8 @@ export type Snapshot = {
 	id: string
 	timestamp: number
 	description: string
-	file_count: number
+	// Tool calls that created this snapshot (e.g., ['write_code', 'create_design_field'])
+	tools?: string[]
 	// Collection schemas (added to snapshots for restore)
 	collections?: CollectionSchema[]
 }

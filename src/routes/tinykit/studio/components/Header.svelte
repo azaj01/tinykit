@@ -46,6 +46,7 @@
     on_load_templates: () => void;
     on_download_project: () => void;
     on_reset_project: () => void;
+    on_toggle_vibe_zone?: () => void;
     is_mobile?: boolean;
   };
 
@@ -53,7 +54,7 @@
     project_title = $bindable(),
     project_domain = "",
     is_deploying,
-    vibe_zone_enabled = $bindable(),
+    vibe_zone_enabled,
     preview_position = $bindable(),
     save_status = { is_saving: false, has_unsaved: false, last_saved_at: null },
     tabs,
@@ -64,6 +65,7 @@
     on_load_templates,
     on_download_project,
     on_reset_project,
+    on_toggle_vibe_zone,
     is_mobile = false,
   }: HeaderProps = $props();
 
@@ -430,7 +432,7 @@
           <button
             type="button"
             class="w-full px-2 py-2 hover:bg-[var(--builder-bg-secondary)] cursor-pointer rounded-sm text-left"
-            onclick={() => (vibe_zone_enabled = !vibe_zone_enabled)}
+            onclick={() => on_toggle_vibe_zone?.()}
           >
             <div class="flex items-center justify-between">
               <span class="text-sm font-medium">Vibe Zone</span>

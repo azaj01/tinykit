@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fade } from "svelte/transition";
+	import { ExternalLink } from "lucide-svelte";
 
 	interface Artwork {
 		title: string;
@@ -23,6 +24,12 @@
 	let loadingDescription = $state(false);
 	let error = $state(false);
 	let availableArtworks = $state<number[]>([]);
+	let image_loaded = $state(false);
+	let preloaded_artworks = $state<Artwork[]>([]);
+	let preloading = $state(false);
+	let transitioning = $state(false);
+
+	const PRELOAD_COUNT = 3;
 
 	// Department IDs for paintings and fine art (to avoid artifacts)
 	const ART_DEPARTMENTS = [
@@ -154,40 +161,161 @@
 		}
 	}
 
+	// Fetch artwork data without setting it as current (for preloading)
+	async function fetchArtworkData(objectId: number): Promise<Artwork> {
+		const response = await fetch(
+			`https://collectionapi.metmuseum.org/public/collection/v1/objects/${objectId}`
+		);
+
+		if (!response.ok) throw new Error("Failed to fetch artwork");
+
+		const data = await response.json();
+
+		if (!data.primaryImage) {
+			throw new Error("No image available");
+		}
+
+		return {
+			title: data.title || "Untitled",
+			artist: data.artistDisplayName || "Unknown Artist",
+			artistBio: data.artistDisplayBio || "",
+			date: data.objectDate || "Date unknown",
+			medium: data.medium || "",
+			dimensions: data.dimensions || "",
+			department: data.department || "",
+			culture: data.culture || "",
+			classification: data.classification || "",
+			creditLine: data.creditLine || "",
+			imageUrl: data.primaryImage || "",
+			metUrl: data.objectURL || ""
+		};
+	}
+
+	// Preload a single artwork and add to queue
+	async function preloadSingleArtwork(): Promise<Artwork | null> {
+		// Try up to 3 times to find a valid artwork
+		for (let i = 0; i < 3; i++) {
+			try {
+				const randomIndex = Math.floor(
+					Math.random() * availableArtworks.length
+				)
+				const objectId = availableArtworks[randomIndex]
+				const artworkData = await fetchArtworkData(objectId)
+
+				// Preload the image
+				await new Promise<void>((resolve, reject) => {
+					const img = new Image()
+					img.onload = () => resolve()
+					img.onerror = () => reject(new Error("Image failed to load"))
+					img.src = artworkData.imageUrl
+				})
+
+				return artworkData
+			} catch (err) {
+				console.error(`Preload attempt ${i + 1} failed:`, err)
+			}
+		}
+		return null
+	}
+
+	// Preload artworks to maintain PRELOAD_COUNT in queue
+	async function preloadArtworks() {
+		if (preloading) return
+
+		const needed = PRELOAD_COUNT - preloaded_artworks.length
+		if (needed <= 0) return
+
+		preloading = true
+
+		// Ensure we have artworks to choose from
+		if (availableArtworks.length === 0) {
+			await loadAvailableArtworks()
+		}
+
+		if (availableArtworks.length === 0) {
+			preloading = false
+			return
+		}
+
+		// Preload all needed artworks in parallel
+		const promises = Array(needed).fill(null).map(() => preloadSingleArtwork())
+		const results = await Promise.all(promises)
+
+		// Add successful preloads to queue
+		const valid = results.filter((a): a is Artwork => a !== null)
+		preloaded_artworks = [...preloaded_artworks, ...valid]
+
+		preloading = false
+	}
+
+	// Called when current image finishes loading
+	function onImageLoaded() {
+		image_loaded = true
+		// Maintain preload queue
+		preloadArtworks()
+	}
+
 	async function fetchRandomArtwork() {
-		loading = true;
-		error = false;
+		error = false
+
+		// If we already have artwork showing, fade it out first
+		if (artwork && image_loaded) {
+			transitioning = true
+			await new Promise(resolve => setTimeout(resolve, 400)) // Wait for fade-out
+		}
+
+		image_loaded = false
+		transitioning = false
+
+		// If we have preloaded artworks, use the first one
+		if (preloaded_artworks.length > 0) {
+			const [next, ...rest] = preloaded_artworks
+			artwork = next
+			preloaded_artworks = rest
+			loading = false
+
+			// Fetch description for the new artwork
+			if (artwork.metUrl) {
+				fetchDescription(artwork.metUrl)
+			}
+
+			// Replenish preload queue
+			preloadArtworks()
+			return
+		}
+
+		loading = true
 
 		// Load artworks if we don't have any cached
 		if (availableArtworks.length === 0) {
-			await loadAvailableArtworks();
+			await loadAvailableArtworks()
 		}
 
 		// If still no artworks, reload and try again
 		if (availableArtworks.length === 0) {
-			console.log("No artworks found, retrying...");
-			setTimeout(fetchRandomArtwork, 1000);
-			return;
+			console.log("No artworks found, retrying...")
+			setTimeout(fetchRandomArtwork, 1000)
+			return
 		}
 
 		// Try up to 3 times to find a valid artwork
 		for (let i = 0; i < 3; i++) {
 			try {
 				const randomIndex = Math.floor(
-					Math.random() * availableArtworks.length,
-				);
-				const objectId = availableArtworks[randomIndex];
-				await fetchArtworkById(objectId);
-				return; // Success!
+					Math.random() * availableArtworks.length
+				)
+				const objectId = availableArtworks[randomIndex]
+				await fetchArtworkById(objectId)
+				return // Success!
 			} catch (err) {
-				console.error(`Attempt ${i + 1} failed:`, err);
+				console.error(`Attempt ${i + 1} failed:`, err)
 			}
 		}
 
 		// If all attempts failed, reload artworks and try again
-		console.log("All attempts failed, clearing cache and retrying...");
-		availableArtworks = [];
-		setTimeout(fetchRandomArtwork, 1000);
+		console.log("All attempts failed, clearing cache and retrying...")
+		availableArtworks = []
+		setTimeout(fetchRandomArtwork, 1000)
 	}
 
 	onMount(() => {
@@ -223,12 +351,20 @@
 		<div class="flex-1 flex flex-col md:flex-row flex-wrap overflow-scroll">
 			<!-- Image -->
 			<div
-				class="flex-1 flex items-center justify-center p-8 bg-[#0d0d0d]"
+				class="flex-1 flex items-center justify-center p-8 bg-[#0d0d0d] relative"
 			>
+				{#if !image_loaded}
+					<div class="absolute inset-0 flex items-center justify-center">
+						<div
+							class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"
+						></div>
+					</div>
+				{/if}
 				<img
 					src={artwork.imageUrl}
 					alt={artwork.title}
-					class="max-h-full max-w-full object-contain"
+					class="max-h-full max-w-full object-contain transition-opacity duration-300 {image_loaded && !transitioning ? 'opacity-100' : 'opacity-0'}"
+					onload={onImageLoaded}
 				/>
 			</div>
 
@@ -325,9 +461,10 @@
 							href={artwork.metUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="block w-full px-4 py-2 border border-white text-white rounded hover:bg-white hover:text-black transition font-medium text-center"
+							class="flex items-center justify-center gap-2 w-full px-4 py-2 border border-white text-white rounded hover:bg-white hover:text-black transition font-medium"
 						>
 							Read Full Description
+							<ExternalLink class="w-4 h-4" />
 						</a>
 					{/if}
 				</div>

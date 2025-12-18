@@ -50,9 +50,13 @@
 			models: [
 				{
 					id: "gemini-3-pro-preview",
-					label: "gemini-3-pro-preview — best",
+					label: "gemini-3-pro-preview — best"
 				},
-			],
+				{
+					id: "gemini-3-flash-preview",
+					label: "gemini-3-flash-preview — fast"
+				}
+			]
 		},
 	];
 

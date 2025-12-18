@@ -26,6 +26,7 @@ Build at `/tinykit`, deploy to `/`
 | **Backend Functionality** *(soon)* | Background jobs, CRON, and server-side routes. |
 | **Authentication** *(soon)* | Enable email and OAuth signup in your built apps. |
 | **Showcase** *(soon)* | Browse and one-click install community apps. |
+| **Using LLMs in your apps** *(soon)* | Prompt engineering, AI-powered features, and agentic workflows in your apps. |
 
 **Run hundreds of apps on one server.** Point any domain → get a working app.
 
