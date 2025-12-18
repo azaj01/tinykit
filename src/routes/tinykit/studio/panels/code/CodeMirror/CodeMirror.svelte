@@ -33,6 +33,7 @@
 
   import * as themeModule from "./theme";
   import * as extModule from "./extensions";
+  import type { ContentFieldInfo } from "./extensions";
 
   let {
     value = "",
@@ -40,6 +41,8 @@
     onChange = () => {},
     cache_key = "", // Key for scroll position cache (e.g., file path)
     disable_mobile_focus = true, // Prevent auto-focus on mobile
+    collections = [] as string[], // Data collections for $data autocomplete
+    content_fields = [] as ContentFieldInfo[], // Content fields for $content autocomplete
   } = $props();
 
   // Prettier modules (loaded dynamically)
@@ -88,6 +91,7 @@
   let theme_compartment = new Compartment();
   let language_compartment = new Compartment();
   let emmet_compartment = new Compartment();
+  let tinykit_completions_compartment = new Compartment();
 
   // Class style tooltip state
   let tooltip_visible = $state(false);
@@ -512,6 +516,7 @@
     const languageExtension = extModule.getLanguage(language);
     const emmetExtensions = extModule.getEmmetExtensions(language);
     const themedEditor = themeModule.create_themed_editor();
+    const tinykitCompletions = extModule.create_tinykit_completions(collections, content_fields);
 
     const detectModKey = EditorView.domEventHandlers({
       keydown(event: any, view: EditorView) {
@@ -597,6 +602,7 @@
         language_compartment.of(languageExtension),
         emmet_compartment.of(emmetExtensions),
         theme_compartment.of(themedEditor),
+        tinykit_completions_compartment.of(tinykitCompletions),
         keymap.of([
           ...standardKeymap,
           indentWithTab,
@@ -890,6 +896,19 @@
       if (tooltip_editor_view && tooltip_theme_compartment) {
         tooltip_editor_view.dispatch({
           effects: tooltip_theme_compartment.reconfigure(themedEditor),
+        });
+      }
+    },
+  );
+
+  // React to collections or content_fields changes (for $data/$content autocomplete)
+  watch(
+    () => [collections, content_fields] as const,
+    () => {
+      if (editorView && tinykit_completions_compartment && extModule) {
+        const newCompletions = extModule.create_tinykit_completions(collections, content_fields);
+        editorView.dispatch({
+          effects: tinykit_completions_compartment.reconfigure(newCompletions),
         });
       }
     },
