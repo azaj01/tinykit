@@ -1,4 +1,5 @@
 import { generate_font_links } from './fonts.js'
+import { transform_content_fields } from './content-utils'
 
 /**
  * Generate CSS variables from design fields
@@ -184,7 +185,7 @@ function create_collection(name) {
       if (cache) {
         const idx = cache.findIndex(r => r.id === id)
         if (idx !== -1) {
-          cache = cache.map(r => r.id === id ? { ...r, ...data, updated: new Date().toISOString() } : r)
+          cache = cache.map(r => r.id === id ? { ...r, ...data } : r)
           collection._notify(cache, true)
         }
       }
@@ -215,6 +216,12 @@ function create_collection(name) {
      * @returns {function} Unsubscribe function
      */
     subscribe(callback, params = {}) {
+      // Validate callback is a function
+      if (typeof callback !== 'function') {
+        console.error('[db] subscribe() requires a function callback, got:', typeof callback)
+        return () => {} // Return noop unsubscribe
+      }
+
       subscribers.push(callback)
       last_params = params
 
@@ -320,15 +327,24 @@ const PROJECT_ID = '${project_id}'
 /**
  * Get the URL for an uploaded asset file
  * @param {string} filename - The filename stored in the record
+ * @param {Object} [options] - Optional parameters
+ * @param {string} [options.thumb] - Thumbnail size, e.g. "100x100", "300x0", "100x100f"
+ * @param {boolean} [options.download] - Force download instead of preview
  * @returns {string} The full URL to the asset
  */
-export function asset(filename) {
+export function asset(filename, options) {
   if (!filename) return ''
   // If it's already a full URL (e.g., from external source), return as-is
   if (filename.startsWith('http://') || filename.startsWith('https://')) {
     return filename
   }
-  return '/_tk/assets/' + PROJECT_ID + '/' + filename
+  // Use path-based project_id so query params stay clean for thumb/download
+  let url = PROJECT_ID ? '/_tk/assets/' + PROJECT_ID + '/' + filename : '/_tk/assets/' + filename
+  const params = []
+  if (options?.thumb) params.push('thumb=' + options.thumb)
+  if (options?.download) params.push('download=1')
+  if (params.length) url += '?' + params.join('&')
+  return url
 }
 
 /**
@@ -389,23 +405,8 @@ export const dynamic_iframe_srcdoc = (head, broadcast_id, options = {}) => {
   // Generate inline CSS for design variables
   const design_css = generate_design_css(design);
 
-  /**
-   * @param {string} text
-   */
-  const slugify = (text) => {
-    return text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_|_$/g, "");
-  };
-
-  // Transform content fields into key-value object
-  /** @type {Record<string, any>} */
-  const content_obj = {};
-  for (const field of content) {
-    const key = slugify(field.name);
-    content_obj[key] = field.value;
-  }
+  // Transform content fields into key-value object (images → URLs, markdown → HTML)
+  const content_obj = transform_content_fields(content, project_id);
 
   // Transform design fields into key-value object
   /** @type {Record<string, string>} */
@@ -415,7 +416,11 @@ export const dynamic_iframe_srcdoc = (head, broadcast_id, options = {}) => {
   }
 
   // Create data URLs for import map
-  const content_module = `export default ${JSON.stringify(content_obj)}`;
+  // $content reads from a global so it can be updated without reload
+  const content_module = `
+window.__tk_content = ${JSON.stringify(content_obj)};
+export default window.__tk_content;
+`.trim();
   const design_module = `export default ${JSON.stringify(design_obj)}`;
   const data_module = generate_data_module(project_id, data_collections);
   const tk_module = generate_tinykit_module(project_id);
@@ -466,6 +471,18 @@ export const dynamic_iframe_srcdoc = (head, broadcast_id, options = {}) => {
           if (event === 'DATA_UPDATED') {
             if (payload.data && typeof window.__tk_update_data === 'function') {
               window.__tk_update_data(payload.data)
+            }
+            return
+          }
+
+          // Handle content updates (remount component with new content)
+          if (event === 'UPDATE_CONTENT') {
+            if (payload.content && window.__tk_content) {
+              // Mutate existing object so cached module reference stays valid
+              for (const key in window.__tk_content) delete window.__tk_content[key]
+              Object.assign(window.__tk_content, payload.content)
+              // Remount component to pick up new content
+              if (mod) update({})
             }
             return
           }

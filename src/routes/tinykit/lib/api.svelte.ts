@@ -3,6 +3,8 @@
 
 import { pb } from '$lib/pocketbase.svelte'
 import { project_service } from '$lib/services/project.svelte'
+import { marked } from 'marked'
+import { transform_content_fields } from '$lib/compiler/init'
 import type {
 	Project,
 	AgentMessage,
@@ -34,21 +36,7 @@ async function get_project(project_id: string): Promise<Project> {
 }
 
 // Helper to update project
-// Set force=true to allow intentional clearing of frontend_code (e.g., reset)
-async function update_project(project_id: string, data: Partial<Project>, force = false): Promise<Project> {
-	// Guard against accidentally clearing frontend_code (unless force=true)
-	if ('frontend_code' in data && !force) {
-		const codeLength = (data.frontend_code as string)?.length || 0
-		if (codeLength === 0) {
-			// Remove frontend_code from the update
-			const { frontend_code, ...rest } = data
-			if (Object.keys(rest).length > 0) {
-				return await pb.collection(COLLECTION).update<Project>(project_id, rest)
-			}
-			// Nothing to update
-			return await pb.collection(COLLECTION).getOne<Project>(project_id)
-		}
-	}
+async function update_project(project_id: string, data: Partial<Project>): Promise<Project> {
 	return await pb.collection(COLLECTION).update<Project>(project_id, data)
 }
 
@@ -104,7 +92,6 @@ export async function read_code(project_id: string): Promise<string> {
 }
 
 export async function write_code(project_id: string, content: string): Promise<void> {
-	if (!content) throw new Error('Cannot write empty code')
 	await update_project(project_id, { frontend_code: content })
 }
 
@@ -192,15 +179,16 @@ export async function delete_endpoint(project_id: string, id: string): Promise<v
 	// Not implemented - endpoints not stored in project
 }
 
-export async function add_content_field(project_id: string, field: Omit<ContentField, "id">): Promise<void> {
+export async function add_content_field(project_id: string, field: Omit<ContentField, "id">): Promise<ContentField> {
 	const project = await get_project(project_id)
 	const fields = project.content || []
-	const new_field = {
+	const new_field: ContentField = {
 		...field,
 		id: crypto.randomUUID()
 	}
 	fields.push(new_field)
 	await update_project(project_id, { content: fields })
+	return new_field
 }
 
 export async function update_content_field(project_id: string, id: string, value: any): Promise<void> {
@@ -223,15 +211,16 @@ export async function reorder_content_fields(project_id: string, fields: Content
 	await update_project(project_id, { content: fields })
 }
 
-export async function add_design_field(project_id: string, field: Omit<DesignField, "id">): Promise<void> {
+export async function add_design_field(project_id: string, field: Omit<DesignField, "id">): Promise<DesignField> {
 	const project = await get_project(project_id)
 	const design = project.design || []
-	const new_field = {
+	const new_field: DesignField = {
 		...field,
 		id: crypto.randomUUID()
 	}
 	design.push(new_field)
 	await update_project(project_id, { design })
+	return new_field
 }
 
 export async function update_design_field(project_id: string, id: string, value: string): Promise<void> {
@@ -392,17 +381,7 @@ export async function build_app(project_id: string): Promise<any> {
 	const has_js = source_code.includes('<script')
 
 	// Build tinykit_modules for SSR (content/design/data inlined during server render)
-	const slugify = (text: string) => text
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '_')
-		.replace(/^_|_$/g, '')
-
-	// Transform content fields into key-value object (same format as $content import)
-	const content_obj: Record<string, any> = {}
-	for (const field of config.fields || []) {
-		const key = slugify(field.name)
-		content_obj[key] = field.value
-	}
+	const content_obj = transform_content_fields(config.fields || [], project_id)
 
 	// Transform design fields into key-value object (same format as $design import)
 	const design_obj: Record<string, string> = {}
@@ -511,17 +490,8 @@ type ProductionHtmlOptions = {
 }
 
 function generate_production_html({ body, head = '', hydration_js, config }: ProductionHtmlOptions): string {
-	const slugify = (text: string) => text
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '_')
-		.replace(/^_|_$/g, '')
-
 	// Transform content fields into key-value object
-	const content_obj: Record<string, any> = {}
-	for (const field of config.fields || []) {
-		const key = slugify(field.name)
-		content_obj[key] = field.value
-	}
+	const content_obj = transform_content_fields(config.fields || [], config.project_id || '')
 
 	// Transform design fields into key-value object
 	const design_obj: Record<string, string> = {}
@@ -961,13 +931,26 @@ export async function upload_asset(project_id: string, file: File): Promise<stri
 	const new_assets = updated.assets || []
 	const new_filename = new_assets.find((f: string) => !existing_assets.includes(f)) || new_assets[new_assets.length - 1]
 
-	// Return the URL for the asset
-	return `/_tk/assets/${new_filename}?project_id=${project_id}`
+	// Return just the filename (use asset() helper in templates to get full URL)
+	return new_filename
 }
 
 export async function list_assets(project_id: string): Promise<string[]> {
 	const project = await get_project(project_id)
-	return (project.assets || []).map((filename: string) => `/_tk/assets/${filename}?project_id=${project_id}`)
+	return project.assets || []
+}
+
+// Convert a filename to a full asset URL (for admin UI previews)
+export function asset_url(project_id: string, filename: string, thumb?: string): string {
+	if (!filename) return ''
+	// If it's already a full URL, return as-is
+	if (filename.startsWith('http://') || filename.startsWith('https://')) {
+		return filename
+	}
+	// Use path-based project_id so query params stay clean
+	let url = `/_tk/assets/${project_id}/${filename}`
+	if (thumb) url += `?thumb=${thumb}`
+	return url
 }
 
 export async function delete_asset(project_id: string, filename: string): Promise<void> {
