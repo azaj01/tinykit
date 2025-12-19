@@ -1,60 +1,79 @@
-# <span style="margin-right:1rem">Tinykit</span> [![Newsletter](https://img.shields.io/badge/Newsletter-Sign%20Up-blue)](https://tinykit.studio/newsletter-signup) [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/NfMjt3yUtn) [![X](https://img.shields.io/badge/@tinykit--studio-22c55e?logo=x)](https://x.com/tinykit_studio) [![Bluesky](https://img.shields.io/badge/@tinykit--studio-22c55e?logo=bluesky)](https://bsky.app/profile/tinykit-studio.bsky.social)
+<br />
+<p align="center">
+  <a href="https://tinykit.studio">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="static/logo-light.svg">
+      <source media="(prefers-color-scheme: light)" srcset="static/logo-dark.svg">
+      <img src="static/logo-dark.svg" alt="Logo" width="100">
+    </picture>
+  </a>
+</p>
+<p align="center">
+    <b>The open-source agentic app builder.</b> <br />
+    Think Lovable, Replit, or v0, but self-hostable and self-contained.<br>
+    Build at <code>/tinykit</code>, deploy to <code>/</code>
+</p>
 
-**Open-source agentic app builder.** Think Lovable, Replit, or v0, but self-hostable and self-contained. Build, tweak, and deploy all your tiny web apps on a single server controlled entirely by you.
+<div align="center">
 
-Build at `/tinykit`, deploy to `/`
+[![Newsletter](https://img.shields.io/badge/Newsletter-Sign%20Up-blue)](https://tinykit.studio/newsletter-signup) [![X](https://img.shields.io/badge/@tinykit--studio-22c55e?logo=x)](https://x.com/tinykit_studio) [![Bluesky](https://img.shields.io/badge/@tinykit--studio-22c55e?logo=bluesky)](https://bsky.app/profile/tinykit-studio.bsky.social)
 
-![Screenshot](./screenshot.png)
+<h4 align="center">
+  <a href="https://docs.tinykit.studio/quickstart" target="_blank">
+    Get Started
+  </a>  ·
+  <a href="https://docs.tinykit.studio" target="_blank">
+    Documentation
+  </a>  ·
+  <a href="https://tinykit.studio" target="_blank">
+    Website
+  </a>  ·
+  <a href="https://discord.gg/NfMjt3yUtn" target="_blank">
+    Discord
+  </a>
+</h4>
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/YzaerV?referralCode=RCPU7k&utm_medium=integration&utm_source=template&utm_campaign=generic)
+![Screenshot](static/screenshot.png)
 
----
+</div>
 
-## Features
+## Overview
 
-| Feature | Description |
-|---------|-------------|
-| **Self-hosted** | Your server, your data. Powered by PocketBase. Docker optional. |
-| **Agentic** | Prompt the agent to write code, create fields and tables, wire it all up. |
-| **Realtime Database** | Auto-generated database tables that sync in real-time. |
-| **Image uploads** | Built-in asset storage. Upload images and files directly from your apps. |
-| **Code Editor** | Direct access to your source code. One [Svelte](https://svelte.dev) file per app. |
-| **Content Fields** | Edit text without touching code. |
-| **Design System** | Update colors, fonts, shadows from a visual editor. |
-| **Time Travel** | Snapshots on every change. Undo anything. |
-| **Bring Your Own LLM** | OpenAI, Anthropic, or Gemini (more coming soon). |
-| **Backend Functionality** *(soon)* | Background jobs, CRON, and server-side routes. |
-| **Authentication** *(soon)* | Enable email and OAuth signup in your built apps. |
-| **Showcase** *(soon)* | Browse and one-click install community apps. |
-| **LLM Functionality** *(soon)* | Use AI-powered features, and agentic workflows in your apps. |
+[Tinykit](https://tinykit.studio) is an open-source platform for building and deploying web apps with AI. Under the hood, it manages code, database, content, and deployment, letting you focus on the details:
+
+- **Agentic Builder**: Prompt the AI to write code, create fields and tables, and wire it all up.
+- **Self-Hosted**: Your server, your data. Powered by PocketBase. Docker optional.
+- **Realtime Database**: Auto-generated tables that sync in real-time.
+- **Code Editor**: Direct access to your source. One Svelte file per app.
+- **Content Fields**: Edit text without touching code—like a mini CMS.
+- **Design System**: Update colors, fonts, shadows from a visual editor.
+- **Time Travel**: Snapshots on every change. Undo anything.
+- **Image Uploads**: Built-in asset storage for images and files.
+- **Bring Your Own LLM**: OpenAI, Anthropic, or Gemini (more coming soon).
 
 **Run hundreds of apps on one server.** Point any domain → get a working app.
 
----
+> Tinykit is in early alpha and evolving every day. Your suggestions, ideas, and reported bugs help us immensely. Join the conversation on [Discord](https://discord.gg/NfMjt3yUtn) or raise a GitHub issue.
 
-## Templates
+### Star the project to give the maintainer a dopamine hit ⭐
 
-12+ starter templates included:
+## Getting Started
 
-| Category | Templates |
-|----------|-----------|
-| **Productivity** | Kanban, Notes, Canvas, Timer |
-| **Finance** | Expense tracker, Invoice generator |
-| **Content** | Bookmarks, Recipes |
-| **Social** | Linktree, Poll, Event RSVP |
-| **News** | HN reader, RSS reader |
+The easiest way to get started is with Railway. Otherwise, you can run it locally with Docker or Node.js.
 
----
+## Quick Deploy
 
-## Quick Start
-
-### Railway (Easiest)
+One-click one-minute deploy on Railway, no config necessary. Configure your LLM from the app (or add key as ENV var).
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/YzaerV?referralCode=RCPU7k&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-One-click deploy. Configure your LLM from the app (optionally, add key as ENV var).
+Or deploy with [Docker](https://docs.tinykit.studio/docker) or a [VPS](https://docs.tinykit.studio/vps)
 
-### Docker (Self-Hosted)
+## 💻 Running Locally
+
+### Docker
+
+The simplest way to run Tinykit locally:
 
 ```bash
 git clone https://github.com/tinykit-studio/tinykit.git
@@ -62,24 +81,77 @@ cd tinykit/deploy/docker
 docker-compose up -d
 ```
 
-Works on any VPS. See [deploy/docker/README.md](./deploy/docker/README.md) for details.
+This starts Tinykit on port 5173. Visit http://localhost:5173/setup to complete first-time setup.
 
----
+See [deploy/docker/README.md](./deploy/docker/README.md) for more options.
 
+### Node.js
 
-## Docs
+If you prefer running directly with Node:
 
-- [Quickstart](https://docs.tinykit.studio/quickstart)
-- [Architecture](https://docs.tinykit.studio/architecture)
-- [Security](https://docs.tinykit.studio/security)
-- [Contributing](./CONTRIBUTING.md)
+```bash
+# Clone and install
+git clone https://github.com/tinykit-studio/tinykit.git
+cd tinykit
+npm install
 
----
+# Start dev server (auto-downloads PocketBase)
+npm run dev
+```
+
+Visit http://localhost:5173/setup to complete setup.
+
+## Usage
+
+### Domain-Based Routing
+
+Each app gets its own domain. Point multiple domains to one Tinykit server:
+
+```
+calculator.myserver.com/                → Serves calculator app
+calculator.myserver.com/tinykit/studio  → Edit calculator app
+
+blog.myserver.com/                      → Serves blog app
+blog.myserver.com/tinykit/studio        → Edit blog app
+```
+
+### Access Points
+
+| URL                  | Description               |
+| -------------------- | ------------------------- |
+| `/`                  | Your production app       |
+| `/tinykit/studio`    | Edit current domain's app |
+| `/tinykit/dashboard` | See all apps              |
+| `/tinykit/settings`  | LLM configuration         |
+
+### Templates
+
+12+ starter templates to kickstart your apps:
+
+| Category         | Templates                          |
+| ---------------- | ---------------------------------- |
+| **Productivity** | Kanban, Notes, Canvas, Timer       |
+| **Finance**      | Expense tracker, Invoice generator |
+| **Content**      | Bookmarks, Recipes                 |
+| **Social**       | Linktree, Poll, Event RSVP         |
+| **News**         | HN reader, RSS reader              |
+
+## Roadmap
+
+- **Backend Functionality** — Background jobs, CRON, server-side routes
+- **Authentication** — Email and OAuth signup in your apps
+- **Showcase** — Browse and one-click install community apps
+- **LLM Functionality** — AI-powered features and agentic workflows in your apps
+
+## Get Involved
+
+- Questions/ideas/feedback? Join us on [Discord](https://discord.gg/NfMjt3yUtn)
+- Found a bug? Open an issue on [GitHub](https://github.com/tinykit-studio/tinykit/issues)
 
 ## License
 
-MIT — see [LICENSE](./LICENSE)
+[MIT](./LICENSE)
 
 ---
 
-*Build your digital homestead.*
+<p><i>Build your digital homestead.</i></p>
