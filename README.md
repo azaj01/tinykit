@@ -2,8 +2,8 @@
 <p align="center">
   <a href="https://tinykit.studio">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="static/logo-light.svg">
-      <source media="(prefers-color-scheme: light)" srcset="static/logo-dark.svg">
+      <source media="(prefers-color-scheme: dark)" srcset="static/logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="static/logo-light.svg">
       <img src="static/logo-dark.svg" alt="Logo" width="100">
     </picture>
   </a>
