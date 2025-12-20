@@ -32,8 +32,6 @@ vite.config.ts.timestamp-*
 /workspace/demo-project/node_modules/
 /workspace/demo-project/dist/
 
-static
-
 # Local directories
 /palacms/
 /local-notes/
