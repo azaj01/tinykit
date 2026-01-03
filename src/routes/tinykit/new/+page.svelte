@@ -11,7 +11,6 @@
   import {
     KITS,
     TEMPLATES,
-    get_templates_by_kit,
     type Template,
   } from "$lib/templates";
 
@@ -30,10 +29,6 @@
   // Get kit from URL params
   let kit_id = $derived($page.url.searchParams.get("kit"));
   let kit_record = $state<Kit | null>(null);
-  let user_kits = $state<Kit[]>([]);
-
-  // Build a map from kit names to predefined kit IDs (e.g., "launchkit" -> "launch")
-  const kit_name_to_id = new Map(KITS.map(k => [k.name, k.id]));
 
   // Find kit definition if it's a predefined kit
   let kit_def = $derived(KITS.find((k) => k.id === kit_id));
@@ -44,21 +39,8 @@
     kit_record?.icon || kit_def?.icon || "mdi:folder-outline"
   );
 
-  // Get templates for current kit
-  // For predefined kits, show kit-specific templates
-  // For custom kits, show templates from kits the user has added
-  let kit_templates_all = $derived.by(() => {
-    if (!kit_id) return [];
-    const kit_specific = get_templates_by_kit(kit_id);
-    if (kit_specific.length > 0) return kit_specific;
-    // Custom kit - map user's kit names to predefined kit IDs and filter templates
-    const user_kit_ids = new Set(
-      user_kits
-        .map(k => kit_name_to_id.get(k.name))
-        .filter((id): id is string => id !== undefined)
-    );
-    return TEMPLATES.filter(t => t.kits?.some(k => user_kit_ids.has(k)));
-  });
+  // Show all templates - user can add any template to any kit
+  let kit_templates_all = $derived(kit_id ? TEMPLATES : []);
 
   // Filter templates by archetype
   let selected_archetype = $state<TemplateArchetype | "all">("all");
@@ -98,9 +80,6 @@
     if (kit_id && !kit_def) {
       kit_record = await kit_service.get(kit_id);
     }
-
-    // Load all user's kits to filter templates for custom kits
-    user_kits = await kit_service.list();
 
     // Check LLM configuration status
     try {
