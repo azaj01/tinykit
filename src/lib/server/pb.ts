@@ -34,7 +34,7 @@ function getAuthConfig(): { token: string } | { email: string; password: string 
 				return { token: setup.auth_token }
 			}
 
-			// Fall back to password (legacy format) - will migrate to token on success
+			// Fall back to password
 			if (setup.admin_email && setup.admin_password) {
 				return { email: setup.admin_email, password: setup.admin_password }
 			}
@@ -44,6 +44,31 @@ function getAuthConfig(): { token: string } | { email: string; password: string 
 	}
 
 	// Fall back to env vars (for manual configuration)
+	const email = env.POCKETBASE_ADMIN_EMAIL
+	const password = env.POCKETBASE_ADMIN_PASSWORD
+	if (email && password) {
+		return { email, password }
+	}
+
+	return null
+}
+
+// Get password credentials for re-auth when token expires
+function getPasswordCredentials(): { email: string; password: string } | null {
+	// Try setup file first
+	try {
+		if (fs.existsSync(SETUP_FILE)) {
+			const data = fs.readFileSync(SETUP_FILE, 'utf-8')
+			const setup = JSON.parse(data)
+			if (setup.admin_email && setup.admin_password) {
+				return { email: setup.admin_email, password: setup.admin_password }
+			}
+		}
+	} catch {
+		// Fall through
+	}
+
+	// Try env vars
 	const email = env.POCKETBASE_ADMIN_EMAIL
 	const password = env.POCKETBASE_ADMIN_PASSWORD
 	if (email && password) {
@@ -93,9 +118,25 @@ export async function ensureAuth(): Promise<boolean> {
 				saveRefreshedToken(pb.authStore.token)
 				return true
 			} catch {
-				// Token invalid/expired, can't refresh without password
-				console.warn('[PB] Saved token invalid, need fresh setup or env vars')
+				// Token invalid/expired - try password fallback from setup file or env vars
+				console.warn('[PB] Saved token expired, trying password fallback...')
 				pb.authStore.clear()
+
+				// Try setup file password first, then env vars
+				const creds = getPasswordCredentials()
+				if (creds) {
+					try {
+						await pb.collection('_superusers').authWithPassword(creds.email, creds.password)
+						isAuthenticated = true
+						console.log('[PB] Server re-authenticated via password (token was expired)')
+						saveRefreshedToken(pb.authStore.token)
+						return true
+					} catch (e: any) {
+						console.error('[PB] Password auth failed:', e.message || e)
+					}
+				}
+
+				console.error('[PB] Auth token expired and no password available. Re-run /setup')
 				return false
 			}
 		} else {
@@ -115,7 +156,7 @@ export async function ensureAuth(): Promise<boolean> {
 	}
 }
 
-// Save refreshed token back to setup file (and remove password if present)
+// Save refreshed token back to setup file (keeps password for re-auth fallback)
 function saveRefreshedToken(token: string): void {
 	try {
 		if (!fs.existsSync(SETUP_FILE)) return
@@ -123,14 +164,8 @@ function saveRefreshedToken(token: string): void {
 		const data = fs.readFileSync(SETUP_FILE, 'utf-8')
 		const setup = JSON.parse(data)
 
-		// Update token
+		// Update token (password stays for re-auth if token expires)
 		setup.auth_token = token
-
-		// Remove password if present (migration from legacy format)
-		if (setup.admin_password) {
-			delete setup.admin_password
-			console.log('[PB] Migrated from password to token-based auth')
-		}
 
 		fs.writeFileSync(SETUP_FILE, JSON.stringify(setup), { mode: 0o600 })
 	} catch {

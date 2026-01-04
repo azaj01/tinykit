@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
 	import {
 		ArrowLeft,
 		Loader2,
@@ -13,6 +14,15 @@
 	} from "lucide-svelte";
 	import { get_saved_theme, apply_builder_theme } from "$lib/builder_themes";
 	import { pb } from "$lib/pocketbase.svelte";
+
+	// Handle server auth expiry - redirect to login
+	function handle_api_error(data: any, status: number): boolean {
+		if (status === 503 && data.error === "server_auth_expired") {
+			goto("/login")
+			return true
+		}
+		return false
+	}
 
 	interface LLMConfig {
 		provider: string;
@@ -106,6 +116,7 @@
 				},
 			});
 			const data = await res.json();
+			if (handle_api_error(data, res.status)) return;
 			if (data.value) {
 				// Store masked key separately, clear the input field
 				masked_api_key = data.value.api_key || "";
@@ -150,6 +161,7 @@
 			});
 
 			const data = await res.json();
+			if (handle_api_error(data, res.status)) return;
 			if (!res.ok) {
 				throw new Error(data.error || "Failed to save settings");
 			}

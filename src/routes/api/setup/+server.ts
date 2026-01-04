@@ -156,19 +156,21 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		}
 
-		// 7. Save auth token for server-side operations
-		// We save the token (not password) - it can be refreshed by the server
+		// 7. Save auth credentials for server-side operations
+		// We save both token (for fast auth) and password (for re-auth if token expires)
+		// File is protected with 0o600 permissions and lives in pb_data which contains the DB anyway
 		try {
 			const fs = await import("fs/promises")
 			const setup_data = JSON.stringify({
 				timestamp: new Date().toISOString(),
 				admin_email: email,
+				admin_password: password,
 				auth_token: pb.authStore.token
 			})
 			await fs.writeFile("./pocketbase/pb_data/.setup_complete", setup_data, { mode: 0o600 })
-			console.log("[Setup] Auth token saved")
+			console.log("[Setup] Auth credentials saved")
 		} catch (err: any) {
-			console.error("[Setup] Failed to save auth token:", err.message)
+			console.error("[Setup] Failed to save auth credentials:", err.message)
 			// Non-fatal
 		}
 

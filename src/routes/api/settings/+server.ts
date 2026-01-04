@@ -59,7 +59,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 	// Ensure server pb client is authenticated
 	if (!await ensureAuth()) {
-		return json({ error: 'Server not configured' }, { status: 500 })
+		return json({ error: 'server_auth_expired', message: 'Server authentication expired. Please log in again.' }, { status: 503 })
 	}
 
 	try {
@@ -94,7 +94,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	// Ensure server pb client is authenticated
 	if (!await ensureAuth()) {
-		return json({ error: 'Server not configured' }, { status: 500 })
+		return json({ error: 'server_auth_expired', message: 'Server authentication expired. Please log in again.' }, { status: 503 })
 	}
 
 	try {

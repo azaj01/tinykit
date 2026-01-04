@@ -33,6 +33,15 @@
 
 		try {
 			await auth.login(email, password)
+
+			// Also save credentials for server-side auth (handles token expiry)
+			// This is fire-and-forget - don't block login on it
+			fetch("/api/auth/save-server-credentials", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ email, password })
+			}).catch(() => {})
+
 			goto("/tinykit")
 		} catch (err: any) {
 			error = err.message || "Login failed. Please check your credentials."
