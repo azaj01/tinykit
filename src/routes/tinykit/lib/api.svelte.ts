@@ -521,14 +521,16 @@ function generate_production_html({ body, head = '', hydration_js, config }: Pro
 	const data_url = `data:text/javascript,${encodeURIComponent(data_module)}`
 
 	// Generate $tk module (tinykit utilities)
-	const tinykit_module = generate_tinykit_module()
+	const tinykit_module = generate_tinykit_module(config.project_id || '')
 	const tinykit_url = `data:text/javascript,${encodeURIComponent(tinykit_module)}`
 
 	// Build hydration script only if there's client JS
+	// Escape </script> in the code to prevent breaking out of the script tag
+	const escaped_js = hydration_js ? JSON.stringify(hydration_js).replace(/<\/script>/gi, '<\\/script>') : ''
 	const hydration_script = hydration_js ? `
 	<script type="module">
 		// Hydrate the pre-rendered HTML with client-side interactivity
-		const code = ${JSON.stringify(hydration_js)};
+		const code = ${escaped_js};
 		const blob = new Blob([code], { type: 'text/javascript' });
 		const url = URL.createObjectURL(blob);
 
@@ -874,14 +876,16 @@ export default db
 /**
  * Generate the $tk module code (tinykit utilities)
  */
-function generate_tinykit_module(): string {
+function generate_tinykit_module(project_id: string): string {
 	return `
+const PROJECT_ID = '${project_id}'
+
 export function asset(filename, options) {
   if (!filename) return ''
   if (filename.startsWith('http://') || filename.startsWith('https://')) {
     return filename
   }
-  let url = '/_tk/assets/' + filename
+  let url = '/_tk/assets/' + PROJECT_ID + '/' + filename
   const params = []
   if (options?.thumb) params.push('thumb=' + options.thumb)
   if (options?.download) params.push('download=1')
